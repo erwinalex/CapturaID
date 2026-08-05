@@ -8,7 +8,7 @@ namespace SchId.Api.Services;
 
 public class RetentionOptions
 {
-    /// <summary>Días desde la ÚLTIMA salida de la persona tras los cuales sus imágenes son candidatas a borrado.</summary>
+    /// <summary>Días desde la última actividad de la persona tras los cuales sus imágenes son candidatas a borrado.</summary>
     public int DiasRetencion { get; set; } = 365;
 
     /// <summary>
@@ -20,16 +20,18 @@ public class RetentionOptions
 }
 
 /// <summary>
-/// Job en segundo plano que corre una vez al día. Por cada persona, calcula la
-/// fecha de su estancia más reciente (MAX(FSalida) en Estancias). Si pasaron más
-/// de DiasRetencion días desde esa fecha, las imágenes de su INE dejan de ser
-/// necesarias para el propósito legal por el que se guardaron (principio de
-/// minimización de datos) y son candidatas a borrado.
+/// Job en segundo plano que corre una vez al día: borra de disco las imágenes de
+/// INE cuyo periodo de retención ya venció. El criterio vive en RetentionPolicy
+/// (ahí está explicado el porqué de tomar la última actividad y no solo la
+/// última salida).
 ///
-/// Importante: la comparación de fechas se hace en memoria (no en la consulta
-/// SQL) porque las fechas están guardadas en formato TDateTime de Delphi
-/// (numeric), no como DATETIME nativo, y esa conversión no se puede traducir a
-/// SQL vía LINQ. Ver DelphiDateTime para el porqué.
+/// Este job es el ÚNICO lugar de la API que lee dbo.Estancias, y solo lee: quien
+/// administra esa tabla es el PMS. Por eso todas las consultas van con
+/// AsNoTracking.
+///
+/// La comparación de fechas se hace en memoria y no en la consulta SQL, porque
+/// las fechas están guardadas en formato TDateTime de Delphi (numeric) y esa
+/// conversión no se puede traducir a SQL vía LINQ. Ver DelphiDateTime.
 /// </summary>
 public class RetentionCleanupService : BackgroundService
 {
@@ -79,39 +81,72 @@ public class RetentionCleanupService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SchIdDbContext>();
 
-        var ultimaSalidaPorPersona = await db.Estancias
-            .Where(e => e.IdPersona != null && e.FSalida != null)
+        var actividadPorPersona = await db.Estancias
+            .AsNoTracking()
+            .Where(e => e.IdPersona != null)
             .GroupBy(e => e.IdPersona!.Value)
-            .Select(g => new { IdPersona = g.Key, MaxFSalida = g.Max(e => e.FSalida) })
+            .Select(g => new
+            {
+                IdPersona = g.Key,
+                MaxFIngreso = g.Max(e => e.FIngreso),
+                MaxFSalida = g.Max(e => e.FSalida)
+            })
+            .ToDictionaryAsync(x => x.IdPersona, ct);
+
+        var personas = await db.Personas
+            .AsNoTracking()
+            .Select(p => new { p.ID, p.FechaAlta, p.UltimaModificacion })
             .ToListAsync(ct);
 
         var limite = DateTime.Now.AddDays(-_options.DiasRetencion);
+        var candidatos = new List<(long Id, DateTime UltimaActividad)>();
 
-        var candidatos = ultimaSalidaPorPersona
-            .Select(x => new { x.IdPersona, UltimaSalida = DelphiDateTime.ToDateTime(x.MaxFSalida) })
-            .Where(x => x.UltimaSalida.HasValue && x.UltimaSalida.Value < limite)
-            .ToList();
+        foreach (var persona in personas)
+        {
+            actividadPorPersona.TryGetValue(persona.ID, out var estancias);
+
+            var ultimaActividad = RetentionPolicy.CalcularUltimaActividad(
+                persona.FechaAlta,
+                persona.UltimaModificacion,
+                estancias?.MaxFIngreso,
+                estancias?.MaxFSalida);
+
+            if (!RetentionPolicy.EsCandidato(ultimaActividad, limite))
+            {
+                continue;
+            }
+
+            // Solo interesan quienes de verdad tienen imágenes en disco; si no,
+            // el conteo del log se llenaría de personas históricas sin fotos y
+            // no se podría revisar de forma útil.
+            if (!_images.Exists(persona.ID, ImageSide.Frente) && !_images.Exists(persona.ID, ImageSide.Reverso))
+            {
+                continue;
+            }
+
+            candidatos.Add((persona.ID, ultimaActividad!.Value));
+        }
 
         _logger.LogInformation(
-            "Retención de imágenes INE: {Count} persona(s) superan {Dias} días desde su última salida (modo borrado automático: {Habilitado}).",
+            "Retención de imágenes INE: {Count} persona(s) con imágenes superan {Dias} días desde su última actividad (borrado automático: {Habilitado}).",
             candidatos.Count, _options.DiasRetencion, _options.HabilitarBorradoAutomatico);
 
-        foreach (var candidato in candidatos)
+        foreach (var (id, ultimaActividad) in candidatos)
         {
             if (!_options.HabilitarBorradoAutomatico)
             {
                 _logger.LogInformation(
-                    "Candidato a borrado (simulación) - PersonaId {Id}, última salida {Fecha:yyyy-MM-dd}.",
-                    candidato.IdPersona, candidato.UltimaSalida);
+                    "Candidato a borrado (simulación) - PersonaId {Id}, última actividad {Fecha:yyyy-MM-dd}.",
+                    id, ultimaActividad);
                 continue;
             }
 
-            _images.Delete(candidato.IdPersona, ImageSide.Frente);
-            _images.Delete(candidato.IdPersona, ImageSide.Reverso);
+            _images.Delete(id, ImageSide.Frente);
+            _images.Delete(id, ImageSide.Reverso);
 
             _logger.LogInformation(
-                "Imágenes de INE borradas por vencimiento de retención - PersonaId {Id}, última salida {Fecha:yyyy-MM-dd}.",
-                candidato.IdPersona, candidato.UltimaSalida);
+                "Imágenes de INE borradas por vencimiento de retención - PersonaId {Id}, última actividad {Fecha:yyyy-MM-dd}.",
+                id, ultimaActividad);
         }
     }
 }

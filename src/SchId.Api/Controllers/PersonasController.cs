@@ -1,136 +1,220 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SchId.Api.Data;
 using SchId.Api.Data.Entities;
 using SchId.Api.Models;
+using SchId.Api.Security;
 using SchId.Api.Services;
 using SchId.Shared;
 
 namespace SchId.Api.Controllers;
 
+/// <summary>
+/// Alcance de este controlador: capturar los datos y las imágenes de la INE, y
+/// nada más.
+///
+/// El registro de estancias (entradas, salidas, asignación de habitación) es del
+/// PMS, que trabaja directamente contra la base de datos. Esta API NO escribe en
+/// dbo.Estancias — solo la lee el job de retención, para saber desde cuándo
+/// contar. Lo que el PMS necesita de aquí es el Id que devuelve el registro,
+/// para amarrar a la persona con la estancia que él crea.
+/// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class PersonasController : ControllerBase
 {
     private readonly SchIdDbContext _db;
     private readonly IImageStorageService _images;
+    private readonly ImageStorageOptions _imageOptions;
     private readonly ILogger<PersonasController> _logger;
 
-    public PersonasController(SchIdDbContext db, IImageStorageService images, ILogger<PersonasController> logger)
+    public PersonasController(
+        SchIdDbContext db,
+        IImageStorageService images,
+        IOptions<ImageStorageOptions> imageOptions,
+        ILogger<PersonasController> logger)
     {
         _db = db;
         _images = images;
+        _imageOptions = imageOptions.Value;
         _logger = logger;
     }
 
-    /// <summary>Busca una persona existente por CURP, para no duplicar huéspedes recurrentes.</summary>
-    [HttpGet("curp/{curp}")]
-    public async Task<ActionResult<PersonaResponse>> BuscarPorCurp(string curp)
+    /// <summary>
+    /// Registra la captura de una INE. Si el CURP ya existe, actualiza el
+    /// registro previo en lugar de duplicarlo.
+    ///
+    /// La comparación contra lo que ya había se hace aquí, en el servidor, y no
+    /// en la app: así el kiosko nunca recibe los datos anteriores del huésped,
+    /// solo se entera de si hubo alta, actualización o nada que cambiar. Las
+    /// imágenes se reemplazan siempre que vengan, porque son las vigentes.
+    /// </summary>
+    [HttpPost("registro")]
+    [Authorize(Roles = RolesApi.Captura)]
+    [RequestSizeLimit(20_000_000)] // ~20 MB, suficiente para las dos fotos
+    public async Task<ActionResult<RegistroResponse>> Registrar(
+        [FromForm] RegistroIneRequest request,
+        IFormFile? imagenFrente,
+        IFormFile? imagenReverso,
+        CancellationToken ct)
     {
-        var curpBuscado = curp.Trim();
+        var curp = PersonaMerge.NormalizarCurp(request.Curp);
+        if (curp is null)
+        {
+            return BadRequest("El CURP es obligatorio.");
+        }
+
+        // Se leen y validan las imágenes ANTES de tocar la base de datos: si el
+        // kiosko mandó algo que no es un JPEG, es preferible rechazar la
+        // petición completa a dejar una persona dada de alta sin sus fotos.
+        byte[]? frente;
+        byte[]? reverso;
+        try
+        {
+            frente = await LeerImagenAsync(imagenFrente, nameof(imagenFrente), ct);
+            reverso = await LeerImagenAsync(imagenReverso, nameof(imagenReverso), ct);
+        }
+        catch (ImagenInvalidaException ex)
+        {
+            return BadRequest(ex.Message);
+        }
 
         var persona = await _db.Personas
-            .FirstOrDefaultAsync(p => p.CURP != null && p.CURP.Trim() == curpBuscado);
+            .FirstOrDefaultAsync(p => p.CURP != null && p.CURP.Trim() == curp, ct);
+
+        var esNuevo = persona is null;
+        IReadOnlyList<string> camposActualizados;
+
+        if (persona is null)
+        {
+            persona = new Persona { CURP = curp };
+            PersonaMerge.Aplicar(persona, request);
+            persona.FechaAlta = DelphiDateTime.FromDateTime(DateTime.Now);
+            persona.UltimaModificacion = persona.FechaAlta;
+            camposActualizados = Array.Empty<string>();
+
+            _db.Personas.Add(persona);
+
+            // Se guarda aquí para que la base asigne el ID: el nombre de archivo
+            // de las imágenes se calcula a partir de él.
+            await _db.SaveChangesAsync(ct);
+        }
+        else
+        {
+            camposActualizados = PersonaMerge.Aplicar(persona, request);
+
+            if (camposActualizados.Count > 0)
+            {
+                persona.UltimaModificacion = DelphiDateTime.FromDateTime(DateTime.Now);
+                await _db.SaveChangesAsync(ct);
+            }
+        }
+
+        var guardoFrente = await GuardarImagenAsync(persona.ID, ImageSide.Frente, frente, ct);
+        var guardoReverso = await GuardarImagenAsync(persona.ID, ImageSide.Reverso, reverso, ct);
+
+        var resultado = esNuevo
+            ? ResultadoRegistro.Creado
+            : camposActualizados.Count > 0
+                ? ResultadoRegistro.Actualizado
+                : ResultadoRegistro.SinCambios;
+
+        // Se registra QUÉ campos cambiaron, nunca sus valores: el log del
+        // servicio no es lugar para datos personales.
+        _logger.LogInformation(
+            "Captura de INE {Resultado} - PersonaId {Id}, campos actualizados: {Campos}, token: {Token}.",
+            resultado,
+            persona.ID,
+            camposActualizados.Count == 0 ? "(ninguno)" : string.Join(", ", camposActualizados),
+            User.Identity?.Name ?? "(desconocido)");
+
+        return Ok(new RegistroResponse
+        {
+            Id = persona.ID,
+            Resultado = resultado,
+            CamposActualizados = camposActualizados,
+            ImagenFrenteGuardada = guardoFrente,
+            ImagenReversoGuardada = guardoReverso
+        });
+    }
+
+    /// <summary>
+    /// Consulta una persona por CURP. No la usa el kiosko (su token no tiene
+    /// este rol); está para soporte y herramientas administrativas.
+    /// </summary>
+    [HttpGet("curp/{curp}")]
+    [Authorize(Roles = RolesApi.Consulta)]
+    public async Task<ActionResult<PersonaResponse>> BuscarPorCurp(string curp, CancellationToken ct)
+    {
+        var curpBuscado = PersonaMerge.NormalizarCurp(curp);
+        if (curpBuscado is null)
+        {
+            return BadRequest("El CURP es obligatorio.");
+        }
+
+        var persona = await _db.Personas
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.CURP != null && p.CURP.Trim() == curpBuscado, ct);
 
         if (persona is null)
         {
             return NotFound();
         }
 
-        return Ok(PersonaResponse.DesdeEntidad(persona));
+        var respuesta = PersonaResponse.DesdeEntidad(persona);
+        respuesta.TieneImagenFrente = _images.Exists(persona.ID, ImageSide.Frente);
+        respuesta.TieneImagenReverso = _images.Exists(persona.ID, ImageSide.Reverso);
+
+        return Ok(respuesta);
     }
 
-    /// <summary>
-    /// Registra (o actualiza, si el CURP ya existe) una persona y crea una nueva
-    /// estancia con fecha de ingreso = ahora. Recibe las dos imágenes de la INE
-    /// (frente y reverso) como multipart/form-data; se guardan en disco, nunca
-    /// en la base de datos.
-    /// </summary>
-    [HttpPost("registro")]
-    [RequestSizeLimit(20_000_000)] // ~20 MB, suficiente para las dos fotos
-    public async Task<ActionResult<PersonaResponse>> Registrar(
-        [FromForm] RegistroIneRequest request,
-        IFormFile? imagenFrente,
-        IFormFile? imagenReverso,
-        CancellationToken ct)
+    private async Task<byte[]?> LeerImagenAsync(IFormFile? archivo, string nombreCampo, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(request.Curp))
+        if (archivo is null || archivo.Length == 0)
         {
-            return BadRequest("El CURP es obligatorio.");
+            return null;
         }
 
-        var curpNormalizado = request.Curp.Trim();
-
-        var persona = await _db.Personas
-            .FirstOrDefaultAsync(p => p.CURP != null && p.CURP.Trim() == curpNormalizado, ct);
-
-        var esNuevo = persona is null;
-        persona ??= new Persona();
-
-        persona.Nombre = request.Nombre;
-        persona.Direccion = request.Direccion;
-        persona.CURP = curpNormalizado;
-        persona.Telefono = request.Telefono;
-        persona.Nacionalidad = request.Nacionalidad;
-        persona.Edad = request.Edad;
-        persona.Residencia = request.Residencia;
-        persona.UltimaModificacion = DelphiDateTime.FromDateTime(DateTime.Now);
-
-        if (esNuevo)
+        if (archivo.Length > _imageOptions.MaxBytesPorImagen)
         {
-            persona.FechaAlta = DelphiDateTime.FromDateTime(DateTime.Now);
-            _db.Personas.Add(persona);
-
-            // Se guarda ahora para obtener el ID generado por la base de datos
-            // antes de calcular la ruta de las imágenes (el nombre de archivo
-            // depende del ID).
-            await _db.SaveChangesAsync(ct);
+            throw new ImagenInvalidaException(
+                $"{nombreCampo} pesa {archivo.Length} bytes y el máximo permitido es {_imageOptions.MaxBytesPorImagen}.");
         }
 
-        if (imagenFrente is not null && imagenFrente.Length > 0)
+        using var memoria = new MemoryStream();
+        await using (var origen = archivo.OpenReadStream())
         {
-            await using var contenido = imagenFrente.OpenReadStream();
-            await _images.SaveAsync(persona.ID, ImageSide.Frente, contenido, ct);
+            await origen.CopyToAsync(memoria, ct);
         }
 
-        if (imagenReverso is not null && imagenReverso.Length > 0)
+        var contenido = memoria.ToArray();
+
+        if (!ImagenJpeg.EsJpeg(contenido))
         {
-            await using var contenido = imagenReverso.OpenReadStream();
-            await _images.SaveAsync(persona.ID, ImageSide.Reverso, contenido, ct);
+            throw new ImagenInvalidaException($"{nombreCampo} no es un archivo JPEG.");
         }
 
-        var estancia = new Estancia
-        {
-            IdPersona = persona.ID,
-            FIngreso = DelphiDateTime.FromDateTime(DateTime.Now),
-            Hospedado = 1
-        };
-        _db.Estancias.Add(estancia);
-
-        await _db.SaveChangesAsync(ct);
-
-        _logger.LogInformation("Registro de INE {Accion} - PersonaId {Id}.", esNuevo ? "nuevo" : "actualizado", persona.ID);
-
-        return Ok(PersonaResponse.DesdeEntidad(persona));
+        return contenido;
     }
 
-    /// <summary>Marca la salida (checkout) de la estancia abierta más reciente de la persona.</summary>
-    [HttpPost("{id:long}/checkout")]
-    public async Task<IActionResult> Checkout(long id, CancellationToken ct)
+    private async Task<bool> GuardarImagenAsync(long personaId, ImageSide lado, byte[]? contenido, CancellationToken ct)
     {
-        var estancia = await _db.Estancias
-            .Where(e => e.IdPersona == id && e.FSalida == null)
-            .OrderByDescending(e => e.IdEstancia)
-            .FirstOrDefaultAsync(ct);
-
-        if (estancia is null)
+        if (contenido is null)
         {
-            return NotFound("No hay una estancia abierta para esta persona.");
+            return false;
         }
 
-        estancia.FSalida = DelphiDateTime.FromDateTime(DateTime.Now);
-        await _db.SaveChangesAsync(ct);
+        using var stream = new MemoryStream(contenido);
+        await _images.SaveAsync(personaId, lado, stream, ct);
+        return true;
+    }
 
-        return NoContent();
+    private class ImagenInvalidaException : Exception
+    {
+        public ImagenInvalidaException(string mensaje) : base(mensaje)
+        {
+        }
     }
 }

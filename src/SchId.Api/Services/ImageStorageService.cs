@@ -7,6 +7,9 @@ public class ImageStorageOptions
 {
     /// <summary>Carpeta base donde se guardan las imágenes. Configurable en appsettings.json.</summary>
     public string BasePath { get; set; } = "";
+
+    /// <summary>Tamaño máximo aceptado por imagen. Una foto de INE de CameraX ronda 1-3 MB.</summary>
+    public int MaxBytesPorImagen { get; set; } = 8 * 1024 * 1024;
 }
 
 /// <summary>
@@ -36,11 +39,36 @@ public class ImageStorageService : IImageStorageService
     public bool Exists(long personaId, ImageSide side) =>
         File.Exists(GetPath(personaId, side));
 
+    /// <summary>
+    /// Escribe primero a un archivo temporal y luego lo mueve sobre el definitivo.
+    /// Si la subida se corta a la mitad (el kiosko pierde la red, se reinicia),
+    /// lo que queda roto es el temporal y la imagen buena que ya estaba guardada
+    /// sigue intacta. Escribir directo sobre el destino la dejaría truncada.
+    /// </summary>
     public async Task<string> SaveAsync(long personaId, ImageSide side, Stream content, CancellationToken ct = default)
     {
         var path = GetPath(personaId, side);
-        await using var fileStream = File.Create(path);
-        await content.CopyToAsync(fileStream, ct);
+        var temporal = path + ".tmp";
+
+        try
+        {
+            await using (var fileStream = File.Create(temporal))
+            {
+                await content.CopyToAsync(fileStream, ct);
+            }
+
+            File.Move(temporal, path, overwrite: true);
+        }
+        catch
+        {
+            if (File.Exists(temporal))
+            {
+                File.Delete(temporal);
+            }
+
+            throw;
+        }
+
         return path;
     }
 

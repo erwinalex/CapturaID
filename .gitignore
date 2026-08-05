@@ -32,3 +32,6 @@ ImagenesINE/
 # Sistema operativo
 .DS_Store
 Thumbs.db
+
+# Archivos temporales de escritura atómica de imágenes
+*.tmp
