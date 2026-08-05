@@ -1,0 +1,34 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.8.34330.188
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SchId.Api", "src\SchId.Api\SchId.Api.csproj", "{863B5B8A-CDDA-47E0-AC4E-98F0C73F4A32}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SchId.Shared", "src\SchId.Shared\SchId.Shared.csproj", "{E213CE24-1198-4B56-80FA-603CB7FC721D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SchId.ImageMigration", "src\SchId.ImageMigration\SchId.ImageMigration.csproj", "{DCBBAC4C-60D1-489B-A068-FE656D3E67E6}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{863B5B8A-CDDA-47E0-AC4E-98F0C73F4A32}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{863B5B8A-CDDA-47E0-AC4E-98F0C73F4A32}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{863B5B8A-CDDA-47E0-AC4E-98F0C73F4A32}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{863B5B8A-CDDA-47E0-AC4E-98F0C73F4A32}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E213CE24-1198-4B56-80FA-603CB7FC721D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E213CE24-1198-4B56-80FA-603CB7FC721D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E213CE24-1198-4B56-80FA-603CB7FC721D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E213CE24-1198-4B56-80FA-603CB7FC721D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DCBBAC4C-60D1-489B-A068-FE656D3E67E6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DCBBAC4C-60D1-489B-A068-FE656D3E67E6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DCBBAC4C-60D1-489B-A068-FE656D3E67E6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DCBBAC4C-60D1-489B-A068-FE656D3E67E6}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

@@ -1,0 +1,34 @@
+# Compilados y artefactos de build de .NET
+bin/
+obj/
+out/
+
+# Visual Studio / VS Code
+.vs/
+.vscode/*
+!.vscode/extensions.json
+*.user
+*.suo
+
+# Publicación
+publish/
+*.pubxml
+*.pubxml.user
+
+# Resultados de pruebas
+TestResults/
+
+# Secrets locales (por si algún día se usa dotnet user-secrets)
+secrets.json
+
+# Imágenes de INE: nunca deben subirse al repo bajo ningún escenario,
+# aunque alguien apunte por error ImageStorage:BasePath a una carpeta
+# dentro del repo.
+ImagenesINE/
+*.jpg
+*.jpeg
+*.png
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
