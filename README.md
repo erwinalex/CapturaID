@@ -36,6 +36,10 @@ fijo, y la respuesta al kiosko no incluye ningún dato personal.
 - `tests/SchId.Tests` — pruebas unitarias y de integración (`dotnet test`).
 - `sql/verificar_migracion.sql` — consultas para revisar el espacio ocupado
   antes/después de migrar, y para ver quién ya pasó el periodo de retención.
+- `scripts/New-SchIdCertificado.ps1` — genera la CA y el certificado del
+  servidor para HTTPS en la red local.
+- `docs/android/` — piezas listas para el proyecto Android (por ahora, la
+  configuración de seguridad de red).
 
 ## Endpoints
 
@@ -131,6 +135,104 @@ En producción conviene no dejar los tokens en `appsettings.json` dentro del
 repositorio, sino en variables de entorno
 (`Autenticacion__Tokens__0__Token=...`) o en `dotnet user-secrets`.
 
+## HTTPS en la red local
+
+El token del kiosko viaja en un encabezado HTTP. Sin TLS va en claro y
+cualquiera que escuche la red se lo queda, así que HTTPS no es opcional una vez
+que el kiosko está en operación. La API arranca igual en HTTP —hace falta para
+instalar y diagnosticar— pero lo deja dicho en el log con un warning.
+
+### 1. Generar los certificados
+
+En la PC del servidor, como administrador:
+
+```powershell
+cd scripts
+.\New-SchIdCertificado.ps1 -Direcciones 192.168.1.50, schid-servidor
+```
+
+Pon en `-Direcciones` **todas** las formas en que los kioskos van a alcanzar al
+servidor. Eso es lo que acaba en el SAN del certificado, y **Android valida el
+SAN e ignora el CN**: si el kiosko apunta a `https://192.168.1.50` y esa IP no
+está ahí, la conexión falla aunque el certificado sea perfectamente válido. Las
+IPs y los nombres DNS van en campos distintos del SAN; el script los separa
+solo, pero una IP no sirve si quedó registrada como nombre.
+
+El script crea **una CA propia y, firmado por ella, el certificado del
+servidor**. Suena a rodeo frente a un autofirmado suelto, pero es lo que hace
+manejable la renovación: en el kiosko se declara de confianza la CA, no el
+certificado del servidor. Con una CA de 10 años y certificados de servidor de 2,
+renovar es volver a correr el script — sin tocar ni reinstalar la app en cada
+kiosko. Con un autofirmado, cada renovación obliga a actualizar todos los
+dispositivos.
+
+Si corres el script otra vez y la CA sigue vigente, la reutiliza en lugar de
+crear una nueva, justamente para no invalidar a los kioskos que ya confían en
+ella.
+
+### 2. Configurar Kestrel
+
+El script imprime el bloque exacto para `src/SchId.Api/appsettings.json`:
+
+```json
+"Kestrel": {
+  "Endpoints": {
+    "Https": {
+      "Url": "https://0.0.0.0:7443",
+      "Certificate": {
+        "Subject": "schid-servidor",
+        "Store": "My",
+        "Location": "LocalMachine",
+        "AllowInvalid": false
+      }
+    }
+  }
+}
+```
+
+El certificado se lee del almacén de Windows por su nombre, no de un archivo
+`.pfx`. Así no hay contraseña de certificado que proteger, por la misma razón
+que la cadena de conexión usa autenticación integrada en vez de una contraseña
+de base de datos.
+
+**Quita la sección `Http` cuando los kioskos ya estén en HTTPS.** Mientras siga
+ahí, un kiosko mal configurado puede seguir mandando su token en claro sin que
+nadie lo note; la API avisa de esto en el log al arrancar. Si dejas ambos, el
+redirect a HTTPS se activa solo (y solo entonces: activarlo sin un endpoint
+HTTPS configurado hacía que Kestrel respondiera 307 hacia un puerto donde no
+escucha nadie).
+
+Abre el puerto en el firewall y reinicia el servicio:
+
+```powershell
+New-NetFirewallRule -DisplayName "SchId API (HTTPS)" -Direction Inbound -Protocol TCP -LocalPort 7443 -Action Allow
+Restart-Service SchIdApi
+```
+
+### 3. Confiar en la CA desde el kiosko
+
+Copia `schid_ca.crt` (lo deja el script en `C:\SchId\certificados`) al proyecto
+Android en `app/src/main/res/raw/schid_ca.crt`, y usa el
+`network_security_config.xml` que está en `docs/android/`. Ahí queda explicado
+por qué la app confía **solo** en nuestra CA para el dominio del servidor —para
+que ninguna CA pública comprometida pueda meterse en medio— mientras conserva
+las CAs del sistema para todo lo demás.
+
+Con esa configuración no hace falta instalar nada a mano en el dispositivo ni
+pedir permisos de administrador en la tableta.
+
+### Verificar que quedó bien
+
+Desde la PC del servidor:
+
+```powershell
+curl.exe -v https://192.168.1.50:7443/api/personas/curp/PRUEBA -H "X-Api-Key: <token de consulta>"
+```
+
+Un `401` o un `403` ya son buena señal: significa que el TLS se estableció y la
+petición llegó a la autenticación. Lo que no debe aparecer es un error de
+certificado.
+
 ## Retención de imágenes
 
 `RetentionCleanupService` corre una vez al día y borra de disco las imágenes
@@ -216,11 +318,10 @@ sc start SchIdApi
 
 ## Pendientes / siguiente paso
 
-- HTTPS con certificado real o autofirmado para la red local. Mientras tanto el
-  token viaja en claro por la red: aceptable en una red cableada y cerrada,
-  pero hay que resolverlo antes de meter el kiosko a una wifi compartida.
 - Revisar el criterio de retención con quien lleve el tema legal antes de poner
   `HabilitarBorradoAutomatico` en true.
+- Anotar en el calendario la fecha de vencimiento del certificado del servidor
+  (la imprime el script al terminar). Si vence, los kioskos dejan de conectar.
 - Empezar el proyecto Android (Kotlin + CameraX + ML Kit) que consume esta API.
 - Acordar con el PMS cómo recibe el `Id` que devuelve el registro para amarrar
   la estancia.

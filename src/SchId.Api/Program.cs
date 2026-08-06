@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using SchId.Api.Data;
@@ -57,6 +58,27 @@ builder.Services
     .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(
         ApiKeyAuthenticationHandler.NombreEsquema, _ => { });
 
+// UseHttpsRedirection necesita saber a qué puerto redirigir. Si no se le dice,
+// intenta deducirlo de las direcciones donde el servidor quedó escuchando, y
+// cuando no lo logra NO redirige: atiende la petición por HTTP en silencio, que
+// es justo lo que no queremos con un token de por medio. El puerto se toma del
+// mismo lugar donde se configura el endpoint, para no tener dos números que
+// mantener sincronizados.
+//
+// Se lee de forma diferida (Configure<IConfiguration>) y no aquí mismo, porque
+// las fuentes de configuración que se agregan al final —variables de entorno de
+// la instalación, o lo que inyecten las pruebas— todavía no están cargadas en
+// este punto.
+builder.Services.AddOptions<HttpsRedirectionOptions>()
+    .Configure<IConfiguration>((options, configuracion) =>
+    {
+        var puerto = LeerPuertoHttps(configuracion["Kestrel:Endpoints:Https:Url"]);
+        if (puerto is not null)
+        {
+            options.HttpsPort = puerto.Value;
+        }
+    });
+
 builder.Services.AddAuthorization(options =>
 {
     // Política por omisión: todo endpoint exige token, incluso uno que se agregue
@@ -71,6 +93,12 @@ var app = builder.Build();
 
 ValidarTokensConfigurados(app.Services, app.Logger);
 
+// Se consulta app.Configuration y no builder.Configuration por lo mismo que el
+// puerto de arriba: aquí ya están cargadas todas las fuentes.
+var hayHttps = app.Configuration.GetSection("Kestrel:Endpoints:Https").Exists();
+var hayHttp = app.Configuration.GetSection("Kestrel:Endpoints:Http").Exists();
+AvisarSobreTransporte(app.Logger, hayHttps, hayHttp);
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -80,7 +108,7 @@ if (app.Environment.IsDevelopment())
 // Solo redirige a HTTPS si de verdad hay un endpoint HTTPS configurado. Como
 // Windows Service no aplica launchSettings.json, activarlo a ciegas hacía que
 // Kestrel respondiera 307 hacia un puerto donde no escucha nadie.
-if (builder.Configuration.GetSection("Kestrel:Endpoints:Https").Exists())
+if (hayHttps)
 {
     app.UseHttpsRedirection();
 }
@@ -118,6 +146,54 @@ static void ValidarTokensConfigurados(IServiceProvider servicios, ILogger logger
     }
 
     logger.LogInformation("Autenticación lista con {Count} token(s) configurado(s).", validos.Count);
+}
+
+// Saca el puerto de una URL como "https://0.0.0.0:7443". Devuelve null si no hay
+// URL configurada o si no se puede interpretar; en ese caso se deja que el
+// middleware intente deducirlo por su cuenta.
+static int? LeerPuertoHttps(string? url)
+{
+    if (string.IsNullOrWhiteSpace(url))
+    {
+        return null;
+    }
+
+    // Uri no acepta comodines como 0.0.0.0 o * en el host, pero para sacar el
+    // puerto da igual con qué host se sustituyan.
+    var normalizada = url.Replace("//*:", "//localhost:").Replace("//+:", "//localhost:");
+
+    if (!Uri.TryCreate(normalizada, UriKind.Absolute, out var uri) || uri.Port <= 0)
+    {
+        return null;
+    }
+
+    return uri.Port;
+}
+
+// El token del kiosko va en un encabezado HTTP: sin TLS viaja en claro por la
+// red y cualquiera que la escuche se lo queda. No se puede impedir arrancar en
+// HTTP (hace falta para la instalación inicial y para diagnosticar), pero sí
+// dejarlo dicho en el log de forma que no pase inadvertido.
+static void AvisarSobreTransporte(ILogger logger, bool hayHttps, bool hayHttp)
+{
+    if (!hayHttps)
+    {
+        logger.LogWarning(
+            "La API está sirviendo SOLO HTTP: el token de los kioskos viaja en claro por la red. " +
+            "Ver el apartado \"HTTPS en la red local\" del README para configurar el certificado.");
+        return;
+    }
+
+    if (hayHttp)
+    {
+        logger.LogWarning(
+            "Hay HTTPS configurado, pero el endpoint HTTP sigue abierto. Un kiosko mal configurado " +
+            "puede seguir mandando su token en claro sin que nadie lo note. Una vez que los kioskos " +
+            "estén en HTTPS, quita la sección Kestrel:Endpoints:Http de appsettings.json.");
+        return;
+    }
+
+    logger.LogInformation("La API está sirviendo solo HTTPS.");
 }
 
 /// <summary>Visible para que las pruebas de integración puedan levantar la API con WebApplicationFactory.</summary>
