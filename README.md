@@ -327,6 +327,13 @@ sc start SchIdApi
 - Confirmar contra una credencial real qué trae el código de barras del reverso.
   Es el único supuesto del kiosko que no se pudo verificar sin tener una INE a
   la mano; está explicado en `android/README.md`.
+- **Decidir cómo se identifica a un huésped extranjero.** El kiosko ya lee
+  pasaportes por su MRZ, pero un pasaporte no trae CURP y esta API usa ese campo
+  como llave. Por ahora se guarda una clave sintética y determinista
+  (`PAS-USA-123456789`) en `Personas.CURP`, con prefijo para que se note que no
+  es un CURP. Funciona y no duplica huéspedes recurrentes, pero si el PMS asume
+  que esa columna siempre trae un CURP válido, hay que avisarle o agregar una
+  columna de tipo de documento.
 - Empezar el proyecto Android (Kotlin + CameraX + ML Kit) que consume esta API.
 - Acordar con el PMS cómo recibe el `Id` que devuelve el registro para amarrar
   la estancia.

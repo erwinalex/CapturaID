@@ -16,24 +16,26 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import mx.schid.kiosko.datos.TipoDocumento
 
 /**
  * Pantalla única del kiosko.
  *
- * Lo que se ve nunca incluye datos del huésped: solo instrucciones y el
- * desenlace. Es una decisión, no un pendiente — el kiosko está en un mostrador
- * donde cualquiera que pase alcanza a leer la pantalla.
+ * Salvo la captura manual —donde alguien tiene que teclear los datos— lo que se
+ * ve nunca incluye información del huésped: solo instrucciones y el desenlace.
+ * Es una decisión, no un pendiente: el kiosko está en un mostrador donde
+ * cualquiera que pase alcanza a leer la pantalla.
  */
 @Composable
 fun PantallaCaptura(
@@ -46,8 +48,15 @@ fun PantallaCaptura(
 
     val camara = remember { CamaraKiosko(contexto, lifecycleOwner) }
 
-    DisposableEffect(Unit) {
-        onDispose { camara.liberar() }
+    // El ViewModel no puede tocar la cámara, así que se le presta la función de
+    // OCR. Es lo que le permite bajar al segundo escalón de la cadena de
+    // lectura sin conocer nada de Android.
+    DisposableEffect(camara) {
+        viewModel.reconocerTexto = { jpeg, alTerminar -> camara.reconocerTexto(jpeg, alTerminar) }
+        onDispose {
+            viewModel.reconocerTexto = null
+            camara.liberar()
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -57,9 +66,11 @@ fun PantallaCaptura(
                 alPedirConfiguracion = alPedirConfiguracion
             )
 
+            Paso.TIPO_DOCUMENTO -> ElegirTipo(viewModel::elegirTipo)
+
             Paso.FRENTE, Paso.REVERSO -> Camara(
                 mensaje = estado.mensaje,
-                avisoCurp = estado.avisoCurp,
+                avisoIdentidad = estado.avisoIdentidad,
                 camara = camara,
                 buscarCodigo = estado.paso == Paso.REVERSO,
                 alDetectarCodigo = viewModel::codigoDetectado,
@@ -73,7 +84,7 @@ fun PantallaCaptura(
                 }
             )
 
-            Paso.ENVIANDO -> Centrado {
+            Paso.LEYENDO, Paso.ENVIANDO -> Centrado {
                 CircularProgressIndicator(modifier = Modifier.size(64.dp))
                 Text(
                     estado.mensaje,
@@ -82,6 +93,12 @@ fun PantallaCaptura(
                     modifier = Modifier.padding(top = 24.dp)
                 )
             }
+
+            Paso.MANUAL -> PantallaCapturaManual(
+                tipoDocumento = estado.tipoDocumento,
+                alConfirmar = viewModel::capturaManual,
+                alCancelar = viewModel::cancelarCapturaManual
+            )
 
             Paso.LISTO -> Centrado {
                 Text(
@@ -128,7 +145,7 @@ private fun Inicio(alComenzar: () -> Unit, alPedirConfiguracion: () -> Unit) {
             textAlign = TextAlign.Center
         )
         Text(
-            "Ten a la mano tu credencial para votar",
+            "Ten a la mano tu identificación",
             style = MaterialTheme.typography.bodyLarge,
             color = Color.White,
             textAlign = TextAlign.Center,
@@ -150,20 +167,46 @@ private fun Inicio(alComenzar: () -> Unit, alPedirConfiguracion: () -> Unit) {
 }
 
 @Composable
+private fun ElegirTipo(alElegir: (TipoDocumento) -> Unit) {
+    Centrado {
+        Text(
+            "¿Con qué te vas a registrar?",
+            style = MaterialTheme.typography.headlineMedium,
+            color = Color.White,
+            textAlign = TextAlign.Center
+        )
+
+        Button(
+            onClick = { alElegir(TipoDocumento.INE) },
+            modifier = Modifier.padding(top = 32.dp).fillMaxWidth()
+        ) {
+            Text("Credencial para votar (INE)")
+        }
+
+        Button(
+            onClick = { alElegir(TipoDocumento.PASAPORTE) },
+            modifier = Modifier.padding(top = 16.dp).fillMaxWidth()
+        ) {
+            Text("Pasaporte")
+        }
+    }
+}
+
+@Composable
 private fun Camara(
     mensaje: String,
-    avisoCurp: Boolean,
+    avisoIdentidad: Boolean,
     camara: CamaraKiosko,
     buscarCodigo: Boolean,
-    alDetectarCodigo: (String) -> Unit,
+    alDetectarCodigo: (CodigoLeido) -> Unit,
     alTomarFoto: (ByteArray?) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { contexto ->
                 PreviewView(contexto).also { vista ->
-                    camara.iniciar(vista) { contenido ->
-                        if (buscarCodigo) alDetectarCodigo(contenido)
+                    camara.iniciar(vista) { codigo ->
+                        if (buscarCodigo) alDetectarCodigo(codigo)
                     }
                 }
             },
@@ -185,9 +228,9 @@ private fun Camara(
                 textAlign = TextAlign.Center
             )
 
-            if (avisoCurp) {
+            if (avisoIdentidad) {
                 Text(
-                    "Revisa el CURP en recepción antes de continuar.",
+                    "Revisa los datos en recepción antes de continuar.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFFFFC107),
                     textAlign = TextAlign.Center,

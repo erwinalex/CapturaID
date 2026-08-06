@@ -69,6 +69,7 @@ dependencies {
     // lo descarga por Play Services porque el kiosko vive en una red local
     // cerrada y puede no tener salida a internet.
     implementation(libs.mlkit.barcode.scanning)
+    implementation(libs.mlkit.text.recognition)
 
     implementation(libs.okhttp)
     implementation(libs.androidx.security.crypto)

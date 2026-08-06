@@ -1,15 +1,17 @@
-# SchId Kiosko — app Android
+# SCH · ID — app del kiosko
 
-Kiosko desatendido que captura la INE del huésped y la manda a la API de SchId.
-Kotlin + Jetpack Compose + CameraX + ML Kit.
+Módulo de identificaciones del **Sistema de Control Hotelero**. Kiosko
+desatendido que captura la identificación del huésped —credencial de elector o
+pasaporte— y la manda a la API de SchId. Kotlin + Compose + CameraX + ML Kit.
 
 ## Qué hace y qué no
 
 Captura y envía. Nada más:
 
-1. Foto del **frente** de la credencial.
-2. Foto del **reverso**, leyendo al mismo tiempo su código de barras.
-3. `POST /api/personas/registro` con los datos y las dos imágenes.
+1. El huésped elige **INE** o **pasaporte**.
+2. Fotos del documento (frente y reverso para la INE; la página de datos para
+   el pasaporte), leyendo códigos al mismo tiempo.
+3. `POST /api/personas/registro` con los datos y las imágenes.
 
 **No consulta si el huésped ya existe, no muestra datos y no asigna estancias.**
 Esas tres cosas son deliberadas:
@@ -38,24 +40,51 @@ Esas tres cosas son deliberadas:
   el envío falla, el huésped repite; guardar sus fotos "por si acaso" sería
   acumular imágenes de INE en el dispositivo.
 
-## Lo que hay que verificar contra una credencial real
+## Cómo lee los documentos
 
-**El contenido del PDF417 de la INE no está documentado públicamente** y cambia
-entre modelos de credencial. Por eso `LectorIne` no asume posiciones fijas:
+La lectura baja por tres escalones y solo pasa al siguiente si el anterior no
+dio una identidad utilizable. En el caso normal el huésped ni se entera de que
+existen.
+
+### 1. Código de barras — **QR primero, PDF417 después**
+
+Es lo más confiable cuando funciona: no hay interpretación de por medio. Se
+prefiere el QR porque en los modelos de credencial que traen los dos es el más
+nuevo y el que se lee con menos reintentos; un QR reconocido reemplaza a un
+PDF417 que ya se había leído.
+
+### 2. OCR de las fotos que ya se tomaron
+
+Entra cuando el código está rayado, borroso o el modelo no lo trae legible.
+**No se le pide nada nuevo al huésped**: corre sobre las mismas imágenes que ya
+se capturaron, primero el reverso y luego el frente.
+
+### 3. Captura manual
+
+Último recurso, para recepción. Es la única pantalla del kiosko que muestra
+datos, porque alguien tiene que teclearlos; aun así no trae nada del registro
+previo y no deja nada al terminar. Aquí sí se exige que el CURP tenga la
+estructura correcta: un CURP mal tecleado crea un huésped duplicado que nadie va
+a notar.
+
+## Lo que hay que verificar contra documentos reales
+
+**El contenido del QR y del PDF417 de la INE no está documentado públicamente** y
+cambia entre modelos de credencial. Por eso el lector no asume posiciones fijas:
 
 - El **CURP se busca por forma**, recorriendo todas las ventanas de 18
   caracteres del contenido y quedándose con la que cumple la estructura oficial
   (y, si hay varias, con la que además cuadra con su dígito verificador). Eso
-  funciona sin conocer el formato, **siempre que el CURP venga como texto**.
+  funciona sin conocer el formato, **siempre que el CURP venga como texto**. La
+  misma búsqueda sirve para el OCR, porque el CURP viene impreso en el frente.
 - El **nombre y la dirección** sí dependen del formato. Se intentan con los
   separadores más comunes y, si no se reconocen, se mandan vacíos — la API
   interpreta un campo vacío como "no se pudo leer" y conserva el valor anterior,
   así que un formato desconocido nunca borra datos buenos.
 
 Antes de producción hay que **escanear una credencial real y confirmar qué trae
-el código**. Si el CURP no viene como texto plano, hay que resolverlo por OCR
-del frente o por captura manual; ese camino está previsto en el diseño pero no
-implementado.
+el código**. Si no viniera nada aprovechable, la cadena cae sola en OCR y, si
+acaso, en captura manual — que es justo para lo que están.
 
 La edad se calcula del propio CURP, deduciendo el siglo de la homoclave (dígito
 para nacidos antes del 2000, letra para después).
@@ -64,6 +93,37 @@ El dígito verificador del CURP se calcula y se usa **como aviso, no como
 rechazo**: si el algoritmo tuviera un detalle mal, un CURP legítimo bloquearía el
 mostrador. Cuando no cuadra, la pantalla pide revisar en recepción y el registro
 sigue.
+
+## Pasaportes
+
+El caso opuesto al de la INE: la **MRZ** (las dos líneas de 44 caracteres al pie
+de la página de datos) **sí está especificada públicamente**, en la norma ICAO
+9303. Se lee por posiciones fijas con confianza, y además trae dígitos de
+control, así que un OCR mal leído se detecta antes de mandar basura al servidor
+— algo que con la INE no se puede hacer.
+
+Las pruebas usan el espécimen de la propia norma como vector de verificación:
+sus dígitos de control son los correctos por definición, así que si no validan,
+el error es nuestro.
+
+### La llave de identidad
+
+Un pasaporte no trae CURP, y la API usa ese campo como llave para no duplicar
+huéspedes. Se arma entonces una clave determinista:
+
+```
+PAS-<país emisor>-<número de pasaporte>     ej. PAS-USA-123456789
+```
+
+El mismo documento produce siempre la misma clave, así que un extranjero
+recurrente se actualiza en vez de duplicarse. El prefijo hace evidente en la
+base de datos que ese registro no es un CURP.
+
+**Esta decisión conviene revisarla antes de producción**: mete claves que no son
+CURP en la columna `Personas.CURP`, y si el PMS asume que ahí siempre hay un
+CURP válido, hay que avisarle. La alternativa sería agregar una columna de tipo
+de documento, que es un cambio de esquema. Cabe de sobra: la clave más larga
+mide 16 caracteres y la columna es `nchar(20)`.
 
 ## Compilar
 
@@ -117,8 +177,10 @@ Studio lo genera solo al abrir el proyecto.
 
 - `DeviceAdminReceiver` para poder dejarla como device owner y anclarla sin
   confirmación.
-- Captura manual / OCR como respaldo, para credenciales cuyo código no se pueda
-  leer.
-- Confirmar el formato real del PDF417 (ver arriba) y ajustar el mapeo de
-  nombre y dirección.
-- Icono propio: hoy usa el de omisión de Android.
+- Confirmar el formato real del QR y del PDF417 (ver arriba) y ajustar el mapeo
+  de nombre y dirección.
+- Decidir con el PMS si le sirve la clave sintética de pasaporte o hace falta
+  una columna de tipo de documento.
+- Las heurísticas de OCR para el nombre y el domicilio de la INE se basan en las
+  etiquetas impresas ("NOMBRE", "DOMICILIO"); habrá que afinarlas contra
+  credenciales reales de cada modelo.

@@ -17,17 +17,22 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
-import java.io.ByteArrayOutputStream
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import mx.schid.kiosko.datos.OrigenDatos
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
+/** Un código leído, junto con de qué tipo era. */
+data class CodigoLeido(val contenido: String, val origen: OrigenDatos)
+
 /**
- * Cámara del kiosko: vista previa, toma de foto y lectura del código de barras.
+ * Cámara del kiosko: vista previa, toma de foto, lectura de códigos y OCR.
  *
  * Las fotos NUNCA se escriben a disco. `ImageCapture.takePicture` se usa en su
  * variante en memoria y lo que sale es un arreglo de bytes que se manda y se
- * borra. Guardarlas aunque fuera temporalmente dejaría imágenes de INE en el
- * almacenamiento de una tableta que está en un mostrador.
+ * borra. Guardarlas aunque fuera temporalmente dejaría imágenes de documentos de
+ * identidad en el almacenamiento de una tableta que está en un mostrador.
  */
 class CamaraKiosko(
     private val contexto: Context,
@@ -39,17 +44,16 @@ class CamaraKiosko(
 
     private val escaner: BarcodeScanner = BarcodeScanning.getClient(
         BarcodeScannerOptions.Builder()
-            // El reverso de la INE trae PDF417; los modelos nuevos además un QR.
-            // Se limitan los formatos para que el detector no gaste tiempo
+            // El reverso de la INE trae PDF417, y los modelos nuevos además un
+            // QR. Se limitan los formatos para que el detector no gaste tiempo
             // buscando los otros doce.
-            .setBarcodeFormats(Barcode.FORMAT_PDF417, Barcode.FORMAT_QR_CODE)
+            .setBarcodeFormats(Barcode.FORMAT_QR_CODE, Barcode.FORMAT_PDF417)
             .build()
     )
 
-    fun iniciar(
-        vista: PreviewView,
-        alDetectarCodigo: (String) -> Unit
-    ) {
+    private val reconocedorTexto = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+
+    fun iniciar(vista: PreviewView, alLeerCodigo: (CodigoLeido) -> Unit) {
         val futuro = ProcessCameraProvider.getInstance(contexto)
 
         futuro.addListener({
@@ -66,7 +70,7 @@ class CamaraKiosko(
             val analisis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
-                .also { it.setAnalyzer(ejecutor, AnalizadorDeCodigos(escaner, alDetectarCodigo)) }
+                .also { it.setAnalyzer(ejecutor, AnalizadorDeCodigos(escaner, alLeerCodigo)) }
 
             proveedor.unbindAll()
             proveedor.bindToLifecycle(
@@ -92,8 +96,7 @@ class CamaraKiosko(
             ContextCompat.getMainExecutor(contexto),
             object : ImageCapture.OnImageCapturedCallback() {
                 override fun onCaptureSuccess(imagen: ImageProxy) {
-                    val jpeg = imagen.use { aBytes(it) }
-                    alTerminar(jpeg)
+                    alTerminar(imagen.use { aBytes(it) })
                 }
 
                 override fun onError(excepcion: ImageCaptureException) {
@@ -103,24 +106,42 @@ class CamaraKiosko(
         )
     }
 
+    /**
+     * Corre OCR sobre un JPEG que ya se capturó. Es el segundo escalón de la
+     * cadena: se usa cuando el código de barras no se pudo decodificar, sobre
+     * las mismas fotos que ya se le tomaron al documento — no se le pide nada
+     * más al huésped.
+     */
+    fun reconocerTexto(jpeg: ByteArray, alTerminar: (String?) -> Unit) {
+        val bitmap = android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+        if (bitmap == null) {
+            alTerminar(null)
+            return
+        }
+
+        reconocedorTexto.process(InputImage.fromBitmap(bitmap, 0))
+            .addOnSuccessListener { texto -> alTerminar(texto.text) }
+            .addOnFailureListener { alTerminar(null) }
+            .addOnCompleteListener { bitmap.recycle() }
+    }
+
     private fun aBytes(imagen: ImageProxy): ByteArray {
         val buffer = imagen.planes[0].buffer
-        val salida = ByteArrayOutputStream(buffer.remaining())
         val bytes = ByteArray(buffer.remaining())
         buffer.get(bytes)
-        salida.write(bytes)
-        return salida.toByteArray()
+        return bytes
     }
 
     fun liberar() {
         escaner.close()
+        reconocedorTexto.close()
         ejecutor.shutdown()
     }
 }
 
 private class AnalizadorDeCodigos(
     private val escaner: BarcodeScanner,
-    private val alDetectar: (String) -> Unit
+    private val alLeer: (CodigoLeido) -> Unit
 ) : ImageAnalysis.Analyzer {
 
     @SuppressLint("UnsafeOptInUsageError")
@@ -135,8 +156,18 @@ private class AnalizadorDeCodigos(
 
         escaner.process(entrada)
             .addOnSuccessListener { codigos ->
-                codigos.forEach { codigo ->
-                    codigo.rawValue?.let(alDetectar)
+                // El QR va primero: en los modelos de credencial que traen los
+                // dos, es el más nuevo y el que se lee con menos reintentos.
+                val ordenados = codigos.sortedBy { if (it.format == Barcode.FORMAT_QR_CODE) 0 else 1 }
+
+                ordenados.forEach { codigo ->
+                    val contenido = codigo.rawValue ?: return@forEach
+                    val origen = if (codigo.format == Barcode.FORMAT_QR_CODE) {
+                        OrigenDatos.QR
+                    } else {
+                        OrigenDatos.PDF417
+                    }
+                    alLeer(CodigoLeido(contenido, origen))
                 }
             }
             .addOnCompleteListener { imagen.close() }

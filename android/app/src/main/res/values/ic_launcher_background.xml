@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Azul profundo: se lee bien detrás del blanco del ícono y no compite
+         con los colores de la interfaz del kiosko, que es oscura. -->
+    <color name="ic_launcher_background">#0E2A47</color>
+</resources>

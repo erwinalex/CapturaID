@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Registro de huéspedes</string>
+    <!-- Nombre corto: es lo que cabe bajo el ícono en el lanzador. El sistema
+         completo es "Sistema de Control Hotelero"; esta app es su módulo de
+         identificaciones. -->
+    <string name="app_name">SCH · ID</string>
+    <string name="app_name_completo">Sistema de Control Hotelero — Módulo de ID</string>
 </resources>

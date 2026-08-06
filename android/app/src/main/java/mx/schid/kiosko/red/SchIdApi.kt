@@ -1,6 +1,6 @@
 package mx.schid.kiosko.red
 
-import mx.schid.kiosko.datos.IneCapturada
+import mx.schid.kiosko.datos.DocumentoCapturado
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -63,19 +63,19 @@ class SchIdApi(
     }
 
     fun registrar(
-        ine: IneCapturada,
+        documento: DocumentoCapturado,
         imagenFrente: ByteArray?,
         imagenReverso: ByteArray?
     ): ResultadoEnvio {
         val cuerpo = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .apply {
-                addFormDataPart("Curp", ine.curp)
-                ine.nombre?.let { addFormDataPart("Nombre", it) }
-                ine.direccion?.let { addFormDataPart("Direccion", it) }
-                ine.nacionalidad?.let { addFormDataPart("Nacionalidad", it) }
-                ine.residencia?.let { addFormDataPart("Residencia", it) }
-                ine.edad?.let { addFormDataPart("Edad", it.toString()) }
+                addFormDataPart("Curp", documento.identidad)
+                documento.nombre?.let { addFormDataPart("Nombre", it) }
+                documento.direccion?.let { addFormDataPart("Direccion", it) }
+                documento.nacionalidad?.let { addFormDataPart("Nacionalidad", it) }
+                documento.residencia?.let { addFormDataPart("Residencia", it) }
+                documento.edad?.let { addFormDataPart("Edad", it.toString()) }
 
                 imagenFrente?.let {
                     addFormDataPart("imagenFrente", "frente.jpg", it.toRequestBody(JPEG))

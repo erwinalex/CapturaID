@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Ícono del módulo de ID del Sistema de Control Hotelero.
+
+    Un edificio (el hotel) del que sale, al frente, una credencial con foto y sus
+    renglones de datos: el módulo se ocupa de las identificaciones dentro del
+    sistema. Se dibuja en vector para no versionar un PNG por cada densidad.
+
+    El lienzo de un ícono adaptativo mide 108x108, pero el lanzador lo recorta con
+    la forma que tenga configurada — círculo, cuadrado redondeado, gota. Todo el
+    dibujo se mantiene dentro de un círculo de radio 36 alrededor del centro
+    (54,54), que es lo que ningún recorte se come: de ahí que la composición
+    ocupe el rango 29..79 y no el lienzo completo.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Torre del hotel, al fondo y recorrida a la izquierda -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.55"
+        android:pathData="M29,31 L55,31 L55,69 L29,69 Z" />
+
+    <!-- Ventanas de la torre -->
+    <path
+        android:fillColor="#0E2A47"
+        android:pathData="M34,37 h6 v6 h-6 z M45,37 h6 v6 h-6 z M34,47 h6 v6 h-6 z M45,47 h6 v6 h-6 z" />
+
+    <!-- Credencial al frente, encimada sobre la torre -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M51,52 h23 a5,5 0 0 1 5,5 v16 a5,5 0 0 1 -5,5 h-23 a5,5 0 0 1 -5,-5 v-16 a5,5 0 0 1 5,-5 z" />
+
+    <!-- Foto de la credencial: cabeza y hombros -->
+    <path
+        android:fillColor="#0E2A47"
+        android:pathData="M56,62 m0,-4 a4,4 0 1 1 0,8 a4,4 0 1 1 0,-8 z" />
+    <path
+        android:fillColor="#0E2A47"
+        android:pathData="M49,72 a7,7 0 0 1 14,0 z" />
+
+    <!-- Renglones de datos -->
+    <path
+        android:fillColor="#0E2A47"
+        android:pathData="M66,60 h9 v2.5 h-9 z M66,66 h9 v2.5 h-9 z M66,72 h6 v2.5 h-6 z" />
+
+</vector>
