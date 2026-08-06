@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Configuración de seguridad de red del kiosko.
+
+    Va en app/src/main/res/xml/network_security_config.xml y se referencia desde
+    el manifiesto:
+
+        <application
+            android:networkSecurityConfig="@xml/network_security_config"
+            ... >
+
+    El certificado de la CA (schid_ca.crt, el que genera
+    scripts/New-SchIdCertificado.ps1) va en app/src/main/res/raw/schid_ca.crt.
+    Ojo: se referencia como @raw/schid_ca, sin la extensión.
+
+    Lo que se declara de confianza es la CA, no el certificado del servidor. Por
+    eso renovar el certificado del servidor no obliga a actualizar la app en cada
+    kiosko: mientras la CA siga vigente, la app sigue confiando.
+
+    Por qué está partido en dos bloques:
+
+    - base-config aplica a todo lo demás que haga la app y conserva las CAs del
+      sistema, para no romper servicios de Google (Play Services, ML Kit) si
+      llegan a hacer peticiones por esta vía.
+
+    - domain-config aplica al servidor de SchId y confía ÚNICAMENTE en nuestra
+      CA. Eso es lo que impide que una CA pública comprometida —o una instalada
+      a mano en el dispositivo— pueda ponerse en medio de la conexión donde
+      viaja el token y los datos de la INE.
+
+    cleartextTrafficPermitted="false" cierra la puerta a que el kiosko hable HTTP
+    por un error de configuración: si alguien deja la URL en http://, la app
+    falla de inmediato en vez de mandar el token en claro sin avisar.
+
+    Cambia schid-servidor por la IP o el nombre real, y que coincida EXACTAMENTE
+    con lo que se puso en el SAN del certificado y con la URL que usa la app.
+-->
+<network-security-config>
+
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">schid-servidor</domain>
+        <!-- Si el kiosko apunta por IP, agrega también:
+        <domain includeSubdomains="false">192.168.1.50</domain>
+        -->
+        <trust-anchors>
+            <certificates src="@raw/schid_ca" />
+        </trust-anchors>
+    </domain-config>
+
+</network-security-config>

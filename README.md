@@ -38,8 +38,10 @@ fijo, y la respuesta al kiosko no incluye ningún dato personal.
   antes/después de migrar, y para ver quién ya pasó el periodo de retención.
 - `scripts/New-SchIdCertificado.ps1` — genera la CA y el certificado del
   servidor para HTTPS en la red local.
-- `docs/android/` — piezas listas para el proyecto Android (por ahora, la
-  configuración de seguridad de red).
+- `android/` — la app del kiosko (Kotlin + Compose + CameraX + ML Kit). Tiene su
+  propio README con el detalle de instalación y las decisiones de privacidad.
+- `docs/android/` — la configuración de seguridad de red, de donde la copia el
+  proyecto Android.
 
 ## Endpoints
 
@@ -322,6 +324,9 @@ sc start SchIdApi
   `HabilitarBorradoAutomatico` en true.
 - Anotar en el calendario la fecha de vencimiento del certificado del servidor
   (la imprime el script al terminar). Si vence, los kioskos dejan de conectar.
+- Confirmar contra una credencial real qué trae el código de barras del reverso.
+  Es el único supuesto del kiosko que no se pudo verificar sin tener una INE a
+  la mano; está explicado en `android/README.md`.
 - Empezar el proyecto Android (Kotlin + CameraX + ML Kit) que consume esta API.
 - Acordar con el PMS cómo recibe el `Id` que devuelve el registro para amarrar
   la estancia.

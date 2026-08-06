@@ -1,0 +1,12 @@
+# Build de Gradle / Android
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+.cxx/
+
+# Firma de la app: nunca al repositorio.
+*.jks
+*.keystore
+keystore.properties
