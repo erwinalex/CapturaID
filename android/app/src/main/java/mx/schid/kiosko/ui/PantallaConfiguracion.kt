@@ -23,6 +23,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import mx.schid.kiosko.config.ConfiguracionKiosko
+import mx.schid.kiosko.config.ValidadorUrl
 
 /**
  * Ajustes del kiosko, detrás de un PIN. Es la única pantalla que pide algo
@@ -113,6 +114,16 @@ private fun Ajustes(configuracion: ConfiguracionKiosko, alSalir: () -> Unit) {
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
         )
+
+        // El puerto va en la propia URL. Se avisa de http porque es fácil
+        // dejarlo puesto después de una prueba y no notarlo.
+        if (ValidadorUrl.esSinCifrar(url)) {
+            Text(
+                "Sin cifrar: el token viaja en claro por la red. Úsalo solo para pruebas.",
+                color = Color(0xFFB26A00),
+                modifier = Modifier.padding(top = 8.dp)
+            )
+        }
 
         OutlinedTextField(
             value = token,

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import mx.schid.kiosko.BuildConfig
 
 /**
  * URL del servidor, token y PIN de administración del kiosko.
@@ -53,17 +54,12 @@ class ConfiguracionKiosko(context: Context) {
         get() = pinAdministracion == PIN_INICIAL
 
     /**
-     * La URL tiene que ser https: el token va en un encabezado y por http
-     * viajaría en claro. Además el network_security_config bloquea el tráfico
-     * sin cifrar, así que una URL http fallaría de todos modos — mejor decirlo
-     * al configurar que dejar que truene frente a un huésped.
+     * Ver [ValidadorUrl]. Se acepta http únicamente en compilaciones de
+     * depuración, para poder probar contra un servidor que todavía no tiene
+     * certificado; el APK de release lo rechaza.
      */
-    fun validarUrl(url: String): String? = when {
-        url.isBlank() -> "Escribe la dirección del servidor."
-        url.startsWith("http://") -> "Tiene que ser https://, el token no puede viajar sin cifrar."
-        !url.startsWith("https://") -> "La dirección tiene que empezar con https://."
-        else -> null
-    }
+    fun validarUrl(url: String): String? =
+        ValidadorUrl.validar(url, permiteHttp = BuildConfig.DEBUG)
 
     private companion object {
         const val CLAVE_URL = "url_base"

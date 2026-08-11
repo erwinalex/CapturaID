@@ -35,10 +35,13 @@ import mx.schid.kiosko.datos.TipoDocumento
 /**
  * Pantalla única del kiosko.
  *
- * Salvo la captura manual —donde alguien tiene que teclear los datos— lo que se
- * ve nunca incluye información del huésped: solo instrucciones y el desenlace.
- * Es una decisión, no un pendiente: el kiosko está en un mostrador donde
- * cualquiera que pase alcanza a leer la pantalla.
+ * Salvo la pantalla de confirmación, lo que se ve nunca incluye información del
+ * huésped: solo instrucciones y el desenlace. El kiosko está en un mostrador
+ * donde cualquiera que pase alcanza a leer la pantalla.
+ *
+ * Y lo que la confirmación muestra son los datos que acaban de salir del
+ * documento que el huésped tiene en la mano — nunca el registro previo que
+ * hubiera en la base, que la API sigue sin devolverle al kiosko.
  */
 @Composable
 fun PantallaCaptura(
@@ -97,10 +100,11 @@ fun PantallaCaptura(
                 )
             }
 
-            Paso.MANUAL -> PantallaCapturaManual(
+            Paso.CONFIRMAR -> PantallaDatos(
                 tipoDocumento = estado.tipoDocumento,
-                alConfirmar = viewModel::capturaManual,
-                alCancelar = viewModel::cancelarCapturaManual
+                inicial = estado.prellenado,
+                alConfirmar = viewModel::confirmar,
+                alCancelar = viewModel::cancelar
             )
 
             Paso.LISTO -> Mensaje(

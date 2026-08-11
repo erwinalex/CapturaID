@@ -35,8 +35,12 @@ enum class Paso {
     /** Intentando OCR sobre las fotos que ya se tomaron. */
     LEYENDO,
 
-    /** Ni el código ni el OCR sirvieron: lo captura una persona. */
-    MANUAL,
+    /**
+     * Revisión de los datos antes de mandarlos. Llega con lo que se leyó del
+     * documento, o vacío cuando ni el código ni el OCR sirvieron y le toca
+     * capturar a una persona.
+     */
+    CONFIRMAR,
 
     ENVIANDO,
 
@@ -51,7 +55,13 @@ data class EstadoCaptura(
     val mensaje: String = "",
     /** Se muestra cuando el dígito de control de la identidad no cuadró. */
     val avisoIdentidad: Boolean = false,
-    val permiteReintentar: Boolean = false
+    val permiteReintentar: Boolean = false,
+    /**
+     * Lo que se leyó del documento, para llenar la pantalla de confirmación.
+     * Nulo cuando no se pudo leer nada y hay que capturar a mano. Se limpia al
+     * terminar el flujo, como todo lo demás.
+     */
+    val prellenado: DocumentoCapturado? = null
 )
 
 /**
@@ -61,6 +71,10 @@ data class EstadoCaptura(
  * luego PDF417) → OCR de las fotos que ya se tomaron → captura manual**. Cada
  * escalón solo entra si el anterior no dio una identidad utilizable, así que en
  * el caso normal el huésped no nota que existen.
+ *
+ * Venga de donde venga, **nada se manda al servidor sin pasar por la pantalla
+ * de confirmación**: el huésped ve lo que se leyó de su documento y lo corrige
+ * si hace falta.
  *
  * Regla que atraviesa todo el archivo: **nada de lo capturado sobrevive al final
  * del flujo**. El kiosko está en un mostrador a la vista de cualquiera. Por eso
@@ -165,7 +179,7 @@ class CapturaViewModel(
 
         val leido = documento
         if (leido != null) {
-            enviar(leido)
+            pedirConfirmacion(leido)
         } else {
             intentarOcr()
         }
@@ -209,7 +223,7 @@ class CapturaViewModel(
             val leido = texto?.let { interpretarOcr(it) }
             if (leido != null) {
                 documento = leido
-                enviar(leido)
+                pedirConfirmacion(leido)
             } else {
                 intentarOcrEn(imagenes, indice + 1, ocr)
             }
@@ -230,20 +244,36 @@ class CapturaViewModel(
         return (lectura as? ResultadoLectura.Exito)?.documento
     }
 
-    /** Tercer escalón: que una persona capture los datos. */
-    private fun pedirCapturaManual() {
+    /**
+     * Lleva a la pantalla de confirmación con lo que se haya leído. Todo el
+     * flujo desemboca aquí antes de mandar nada.
+     */
+    private fun pedirConfirmacion(leido: DocumentoCapturado) {
         _estado.value = _estado.value.copy(
-            paso = Paso.MANUAL,
-            mensaje = "No se pudo leer el documento. Pide ayuda en recepción."
+            paso = Paso.CONFIRMAR,
+            mensaje = "",
+            avisoIdentidad = !leido.identidadConsistente,
+            prellenado = leido
         )
     }
 
-    fun capturaManual(documentoCapturado: DocumentoCapturado) {
-        documento = documentoCapturado
-        enviar(documentoCapturado)
+    /** Tercer escalón: no se pudo leer nada, captura una persona. */
+    private fun pedirCapturaManual() {
+        _estado.value = _estado.value.copy(
+            paso = Paso.CONFIRMAR,
+            mensaje = "No se pudo leer el documento. Pide ayuda en recepción.",
+            avisoIdentidad = false,
+            prellenado = null
+        )
     }
 
-    fun cancelarCapturaManual() {
+    /** Lo que el huésped confirmó, ya con las correcciones que haya hecho. */
+    fun confirmar(documentoConfirmado: DocumentoCapturado) {
+        documento = documentoConfirmado
+        enviar(documentoConfirmado)
+    }
+
+    fun cancelar() {
         volverAlInicio()
     }
 

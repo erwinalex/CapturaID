@@ -175,6 +175,25 @@ class LectorDocumentosTest {
         assertFalse(exito(lector.leerOcrPasaporte(alterada, 2025, 6, 1)).identidadConsistente)
     }
 
+    /**
+     * La pantalla de confirmación muestra el país y el número por separado, así
+     * que tiene que poder deshacer la clave que se armó al leer el pasaporte.
+     */
+    @Test
+    fun `la clave del pasaporte se puede descomponer para mostrarla`() {
+        val identidad = exito(lector.leerOcrPasaporte(mrz, 2025, 6, 1)).identidad
+
+        val partes = ClavePasaporte.descomponer(identidad)
+
+        assertEquals("UTO" to "L898902C3", partes)
+    }
+
+    @Test
+    fun `un curp no se confunde con una clave de pasaporte`() {
+        assertNull(ClavePasaporte.descomponer(curp))
+        assertFalse(ClavePasaporte.esClaveDePasaporte(curp))
+    }
+
     @Test
     fun `un texto sin mrz no se da por bueno`() {
         val resultado = lector.leerOcrPasaporte("PASSPORT\nANNA MARIA ERIKSSON", 2025, 6, 1)

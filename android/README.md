@@ -11,7 +11,8 @@ Captura y envía. Nada más:
 1. El huésped elige **INE** o **pasaporte**.
 2. Fotos del documento (frente y reverso para la INE; la página de datos para
    el pasaporte), leyendo códigos al mismo tiempo.
-3. `POST /api/personas/registro` con los datos y las imágenes.
+3. **Confirmación**: el huésped revisa lo que se leyó y lo corrige si hace falta.
+4. `POST /api/personas/registro` con los datos y las imágenes.
 
 **No consulta si el huésped ya existe, no muestra datos y no asigna estancias.**
 Esas tres cosas son deliberadas:
@@ -20,8 +21,10 @@ Esas tres cosas son deliberadas:
   el registro o actualiza el que ya había. Así el kiosko no necesita pedir el
   registro previo, que es lo que obligaría a mandarle datos del huésped a una
   tableta que está en un mostrador.
-- La pantalla nunca muestra nombre, CURP ni dirección: solo instrucciones y el
-  desenlace. Cualquiera que pase junto al kiosko alcanza a leerla.
+- Fuera de la pantalla de confirmación, no se muestra nombre, CURP ni
+  dirección: solo instrucciones y el desenlace. Y lo que la confirmación
+  enseña son **los datos que acaban de salir del documento que el huésped
+  tiene en la mano**, nunca el registro previo que hubiera en la base.
 - Las estancias las lleva el PMS.
 
 ## Privacidad, que es lo que dicta el diseño
@@ -61,11 +64,21 @@ se capturaron, primero el reverso y luego el frente.
 
 ### 3. Captura manual
 
-Último recurso, para recepción. Es la única pantalla del kiosko que muestra
-datos, porque alguien tiene que teclearlos; aun así no trae nada del registro
-previo y no deja nada al terminar. Aquí sí se exige que el CURP tenga la
-estructura correcta: un CURP mal tecleado crea un huésped duplicado que nadie va
-a notar.
+Último recurso, para recepción, cuando ni el código ni el OCR sirvieron.
+
+### Y siempre, la confirmación
+
+**Nada se manda al servidor sin pasar por `PantallaDatos`.** Es el mismo
+formulario en los dos casos: llega lleno con lo que se leyó (confirmación) o
+vacío (captura manual). El huésped revisa, corrige lo que no coincida con su
+documento y confirma.
+
+Aquí sí se exige que el CURP tenga la estructura correcta: uno mal escrito crea
+un huésped duplicado que nadie va a notar. El dígito de control, en cambio,
+solo pinta un aviso.
+
+Se conserva de dónde vino la lectura aunque el huésped corrija un campo: sigue
+siendo útil saber que el dato salió de un QR y no de una captura a mano.
 
 ## Lo que hay que verificar contra documentos reales
 
@@ -178,11 +191,26 @@ Studio lo genera solo al abrir el proyecto.
    **exactamente** con lo que quedó en el SAN del certificado y con la URL que se
    configure en la app.
 
-3. **Instala el APK** y ábrelo. En *Ajustes* (PIN de fábrica `0000`) captura:
-   - Dirección del servidor, con `https://` — la app rechaza `http://`, porque
-     el token viajaría en claro.
+3. **Instala el APK** y ábrelo. En *Ajustes* (PIN de fábrica **`0000`**)
+   captura:
+   - Dirección del servidor, **con el puerto incluido en la URL**
+     (`https://192.168.1.50:7443`).
    - El token del kiosko (rol `Captura`).
    - **Un PIN nuevo.** La pantalla avisa mientras siga el de fábrica.
+
+### Probar sin certificado (http)
+
+La compilación de **depuración** acepta `http://`, para poder probar contra un
+servidor que todavía no tiene certificado. Son dos piezas que van juntas:
+
+- `ValidadorUrl` permite `http://` solo cuando `BuildConfig.DEBUG` es cierto.
+- `src/debug/res/xml/network_security_config.xml` reemplaza al de `src/main`
+  durante `assembleDebug` y habilita el tráfico sin cifrar.
+
+El APK de **release** rechaza `http://` en ambos niveles: al capturar la
+dirección y en la red. Así una prueba no se te cuela a producción por descuido.
+Mientras uses http, la pantalla de ajustes te lo recuerda — y ten presente que
+el token del kiosko viaja en claro.
 
 4. **Ancla la app a la pantalla.** La app llama a `startLockTask()` al abrirse.
    Sin un MDM, Android pide confirmación la primera vez. Para que quede anclada

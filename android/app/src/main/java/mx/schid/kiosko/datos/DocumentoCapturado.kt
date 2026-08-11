@@ -61,4 +61,17 @@ object ClavePasaporte {
     }
 
     fun esClaveDePasaporte(identidad: String) = identidad.startsWith(PREFIJO)
+
+    /**
+     * Deshace [generar] para poder mostrar el país y el número por separado en
+     * la pantalla de confirmación, que es donde el huésped los revisa.
+     */
+    fun descomponer(identidad: String): Pair<String, String>? {
+        if (!esClaveDePasaporte(identidad)) return null
+
+        val partes = identidad.removePrefix(PREFIJO).split("-", limit = 2)
+        if (partes.size != 2) return null
+
+        return partes[0] to partes[1]
+    }
 }
