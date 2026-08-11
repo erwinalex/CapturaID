@@ -9,6 +9,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -17,6 +19,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Devices
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import mx.schid.kiosko.datos.ClavePasaporte
 import mx.schid.kiosko.datos.Curp
@@ -215,6 +219,39 @@ private fun construir(
                     )
                 )
             }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Previsualizaciones. Este formulario cambia según el documento, así que se
+// dibujan las dos variantes: la del CURP y la del pasaporte.
+// ---------------------------------------------------------------------------
+
+@Preview(name = "Manual · INE", showBackground = true, device = Devices.PIXEL_TABLET)
+@Composable
+private fun VistaPreviaManualIne() {
+    MaterialTheme(colorScheme = darkColorScheme()) {
+        Surface {
+            PantallaCapturaManual(
+                tipoDocumento = TipoDocumento.INE,
+                alConfirmar = {},
+                alCancelar = {}
+            )
+        }
+    }
+}
+
+@Preview(name = "Manual · Pasaporte", showBackground = true, device = Devices.PIXEL_TABLET)
+@Composable
+private fun VistaPreviaManualPasaporte() {
+    MaterialTheme(colorScheme = darkColorScheme()) {
+        Surface {
+            PantallaCapturaManual(
+                tipoDocumento = TipoDocumento.PASAPORTE,
+                alConfirmar = {},
+                alCancelar = {}
+            )
         }
     }
 }

@@ -125,9 +125,33 @@ CURP válido, hay que avisarle. La alternativa sería agregar una columna de tip
 de documento, que es un cambio de esquema. Cabe de sobra: la clave más larga
 mide 16 caracteres y la columna es `nchar(20)`.
 
+## Dónde se edita la interfaz
+
+No hay diseñador visual de arrastrar y soltar: la interfaz está hecha con
+**Jetpack Compose**, o sea declarada en código Kotlin. El *Layout Editor* de
+Android Studio pertenece al enfoque anterior, basado en XML, y este proyecto no
+usa XML de layouts.
+
+| Archivo | Qué dibuja |
+|---|---|
+| `ui/PantallaCaptura.kt` | Inicio, elección de documento, cámara, "Listo", errores |
+| `ui/PantallaCapturaManual.kt` | Formulario de captura manual |
+| `ui/PantallaConfiguracion.kt` | PIN y ajustes (URL, token) |
+
+Para verlas sin instalar nada en la tableta, cada archivo trae funciones
+anotadas con `@Preview` al final. Android Studio las dibuja al lado del código;
+con el botón **Split** (arriba a la derecha del editor) se ven código y
+resultado en paralelo, y se actualiza conforme escribes.
+
+La pantalla de la cámara no se previsualiza: CameraX necesita hardware, así que
+ese paso hay que verlo en el dispositivo.
+
 ## Compilar
 
-Necesita JDK 17+ y el Android SDK (API 35).
+Necesita JDK 17+ y el Android SDK (API 35). Android Studio trae su propio JDK y
+el proyecto incluye el wrapper de Gradle, así que no hace falta instalarlos
+aparte. **Abre la carpeta `android/`, no la raíz del repositorio**: la raíz
+tiene la solución de .NET y ningún `settings.gradle`.
 
 ```bash
 cd android

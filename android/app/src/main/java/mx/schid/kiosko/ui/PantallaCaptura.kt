@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -25,6 +26,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Devices
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import mx.schid.kiosko.datos.TipoDocumento
@@ -100,37 +103,21 @@ fun PantallaCaptura(
                 alCancelar = viewModel::cancelarCapturaManual
             )
 
-            Paso.LISTO -> Centrado {
-                Text(
-                    estado.mensaje,
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = Color.White,
-                    textAlign = TextAlign.Center
-                )
-                Button(
-                    onClick = viewModel::volverAlInicio,
-                    modifier = Modifier.padding(top = 32.dp)
-                ) {
-                    Text("Terminar")
-                }
-            }
+            Paso.LISTO -> Mensaje(
+                mensaje = estado.mensaje,
+                destacado = true,
+                textoBoton = "Terminar",
+                alPulsar = viewModel::volverAlInicio
+            )
 
-            Paso.ERROR -> Centrado {
-                Text(
-                    estado.mensaje,
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White,
-                    textAlign = TextAlign.Center
-                )
-                Button(
-                    onClick = {
-                        if (estado.permiteReintentar) viewModel.comenzar() else viewModel.volverAlInicio()
-                    },
-                    modifier = Modifier.padding(top = 32.dp)
-                ) {
-                    Text(if (estado.permiteReintentar) "Intentar de nuevo" else "Entendido")
+            Paso.ERROR -> Mensaje(
+                mensaje = estado.mensaje,
+                destacado = false,
+                textoBoton = if (estado.permiteReintentar) "Intentar de nuevo" else "Entendido",
+                alPulsar = {
+                    if (estado.permiteReintentar) viewModel.comenzar() else viewModel.volverAlInicio()
                 }
-            }
+            )
         }
     }
 }
@@ -248,6 +235,35 @@ private fun Camara(
     }
 }
 
+/**
+ * Pantalla de un solo mensaje con un botón. La usan tanto el desenlace bueno
+ * como el error, que se diferencian nada más en el tamaño del texto y en lo que
+ * dice el botón.
+ */
+@Composable
+private fun Mensaje(
+    mensaje: String,
+    destacado: Boolean,
+    textoBoton: String,
+    alPulsar: () -> Unit
+) {
+    Centrado {
+        Text(
+            mensaje,
+            style = if (destacado) {
+                MaterialTheme.typography.headlineLarge
+            } else {
+                MaterialTheme.typography.headlineSmall
+            },
+            color = Color.White,
+            textAlign = TextAlign.Center
+        )
+        Button(onClick = alPulsar, modifier = Modifier.padding(top = 32.dp)) {
+            Text(textoBoton)
+        }
+    }
+}
+
 @Composable
 private fun Centrado(contenido: @Composable () -> Unit) {
     Column(
@@ -256,5 +272,64 @@ private fun Centrado(contenido: @Composable () -> Unit) {
         verticalArrangement = Arrangement.Center
     ) {
         contenido()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Previsualizaciones
+//
+// Android Studio las dibuja al lado del código, sin compilar ni instalar nada
+// en la tableta. Con el botón "Split" (arriba a la derecha del editor) se ven
+// código y resultado en paralelo.
+//
+// Solo se previsualizan las pantallas que no dependen de la cámara: la vista
+// previa de CameraX necesita hardware, así que ese paso hay que verlo en el
+// dispositivo.
+// ---------------------------------------------------------------------------
+
+@Composable
+private fun EnvolturaPrevia(contenido: @Composable () -> Unit) {
+    MaterialTheme(colorScheme = darkColorScheme()) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+            contenido()
+        }
+    }
+}
+
+@Preview(name = "Inicio", showBackground = true, device = Devices.PIXEL_TABLET)
+@Composable
+private fun VistaPreviaInicio() {
+    EnvolturaPrevia { Inicio(alComenzar = {}, alPedirConfiguracion = {}) }
+}
+
+@Preview(name = "Elegir documento", showBackground = true, device = Devices.PIXEL_TABLET)
+@Composable
+private fun VistaPreviaElegirTipo() {
+    EnvolturaPrevia { ElegirTipo(alElegir = {}) }
+}
+
+@Preview(name = "Listo", showBackground = true, device = Devices.PIXEL_TABLET)
+@Composable
+private fun VistaPreviaListo() {
+    EnvolturaPrevia {
+        Mensaje(
+            mensaje = "Listo. Puedes pasar a recepción.",
+            destacado = true,
+            textoBoton = "Terminar",
+            alPulsar = {}
+        )
+    }
+}
+
+@Preview(name = "Error", showBackground = true, device = Devices.PIXEL_TABLET)
+@Composable
+private fun VistaPreviaError() {
+    EnvolturaPrevia {
+        Mensaje(
+            mensaje = "No hay conexión con el servidor. Inténtalo de nuevo.",
+            destacado = false,
+            textoBoton = "Intentar de nuevo",
+            alPulsar = {}
+        )
     }
 }
