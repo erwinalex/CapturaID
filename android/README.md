@@ -10,7 +10,8 @@ Captura y envía. Nada más:
 
 1. El huésped elige **INE** o **pasaporte**.
 2. Fotos del documento (frente y reverso para la INE; la página de datos para
-   el pasaporte), leyendo códigos al mismo tiempo.
+   el pasaporte). La del reverso de la INE es para el expediente, no para leer:
+   ahí no hay nada que la app pueda aprovechar.
 3. **Confirmación**: el huésped revisa lo que se leyó y lo corrige si hace falta.
 4. `POST /api/personas/registro` con los datos y las imágenes.
 
@@ -53,12 +54,21 @@ existen.
 
 Es lo más confiable cuando funciona: no hay interpretación de por medio.
 
-**En la INE que se probó, este escalón no aporta nada**: el QR pequeño del
-reverso solo lleva un enlace al sitio del INE, sin datos del titular. Se
-mantiene porque no cuesta —el escáner ya está corriendo para la vista previa— y
-porque otros modelos de credencial podrían traer algo aprovechable. El modo
-diagnóstico busca *todos* los formatos, no solo QR y PDF417, para poder
-identificar los códigos grandes del reverso.
+**En la INE, este escalón no aporta nada.** Se comprobó con credenciales reales:
+
+- El **QR pequeño** del reverso solo lleva un enlace al sitio del INE, sin datos
+  del titular.
+- Los **dos códigos grandes** no los decodifica ML Kit ni buscando todos los
+  formatos. Según el propio INE llevan los datos de la persona más sus
+  **biométricos cifrados**, así que aunque se decodificaran no habría nada
+  utilizable: la llave la tiene el INE. Y aunque se pudiera, guardar biométricos
+  de huéspedes es una categoría legal mucho más pesada que archivar la foto de
+  una identificación — no es terreno donde convenga meterse para ahorrarse un
+  OCR.
+
+El escáner se mantiene porque ya está corriendo para la vista previa y no cuesta
+nada, y porque un pasaporte u otro modelo de credencial sí podrían traer algo.
+Pero **para la INE la vía es el OCR**, no un respaldo.
 
 ### 2. OCR de las fotos que ya se tomaron
 
@@ -95,9 +105,16 @@ La edad se toma de la **fecha impresa** en la credencial, no de la que se deduce
 del CURP: viene con el año completo y así no hay que adivinar el siglo a partir
 de la homoclave, que es justo el carácter que más se confunde.
 
-### 3. Captura manual
+### 3. Repetir la foto, y solo entonces captura manual
 
-Último recurso, para recepción, cuando ni el código ni el OCR sirvieron.
+Cuando no se leyó nada, lo primero que se ofrece es **volver a tomar la foto**.
+Casi siempre la causa es un reflejo o un desenfoque, y repetir cuesta segundos
+frente a teclear un CURP completo. La captura manual queda como la segunda
+opción de esa misma pantalla, siempre disponible.
+
+Esto pesa más ahora que se sabe que el código de barras no aporta nada en la
+INE: el OCR no es un respaldo, es *la* vía, y conviene darle un segundo intento
+barato antes de mandar a alguien a teclear.
 
 ### Y siempre, la confirmación
 

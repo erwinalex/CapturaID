@@ -233,16 +233,67 @@ class CapturaViewModelTest {
         assertEquals(OrigenDatos.OCR, estado.prellenado.origen)
     }
 
+    /**
+     * Cuando no se leyó nada, primero se ofrece repetir la foto: casi siempre la
+     * causa es un reflejo o un desenfoque, y repetir cuesta segundos frente a
+     * teclear un CURP a mano.
+     */
     @Test
-    fun `si el ocr tampoco sirve se pide captura manual`() {
+    fun `si el ocr tampoco sirve se ofrece repetir la foto`() {
         val vm = crear()
         vm.reconocerTexto = { _, alTerminar -> alTerminar("NADA UTIL AQUI") }
         vm.avanzarHastaReverso()
 
         vm.reversoCapturado(jpeg)
 
+        assertEquals(Paso.NO_SE_PUDO_LEER, vm.estado.value.paso)
+    }
+
+    @Test
+    fun `repetir la foto regresa al principio de la captura`() {
+        val vm = crear()
+        vm.reconocerTexto = { _, alTerminar -> alTerminar("NADA UTIL AQUI") }
+        vm.avanzarHastaReverso()
+        vm.reversoCapturado(jpeg)
+
+        vm.reintentarFotos()
+
+        assertEquals(Paso.FRENTE, vm.estado.value.paso)
+        assertEquals(TipoDocumento.INE, vm.estado.value.tipoDocumento)
+    }
+
+    /** Y si repetir tampoco sirve, siempre queda teclear los datos. */
+    @Test
+    fun `capturar a mano lleva al formulario vacio`() {
+        val vm = crear()
+        vm.reconocerTexto = { _, alTerminar -> alTerminar("NADA UTIL AQUI") }
+        vm.avanzarHastaReverso()
+        vm.reversoCapturado(jpeg)
+
+        vm.capturarAMano()
+
         assertEquals(Paso.CONFIRMAR, vm.estado.value.paso)
         assertNull("Sin datos que prellenar", vm.estado.value.prellenado)
+    }
+
+    /**
+     * Tras repetir, la segunda vuelta tiene que poder leer con normalidad: no
+     * puede quedar nada del intento fallido.
+     */
+    @Test
+    fun `tras repetir la foto la lectura vuelve a funcionar`() {
+        val vm = crear()
+        vm.reconocerTexto = { _, alTerminar -> alTerminar("NADA UTIL AQUI") }
+        vm.avanzarHastaReverso()
+        vm.reversoCapturado(jpeg)
+        vm.reintentarFotos()
+
+        vm.frenteCapturado(jpeg)
+        vm.codigoDetectado(CodigoLeido("0123|$curp", OrigenDatos.QR))
+        vm.reversoCapturado(jpeg)
+
+        assertEquals(Paso.CONFIRMAR, vm.estado.value.paso)
+        assertEquals(curp, vm.estado.value.prellenado!!.identidad)
     }
 
     @Test

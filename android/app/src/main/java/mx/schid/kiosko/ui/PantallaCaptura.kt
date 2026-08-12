@@ -100,6 +100,27 @@ fun PantallaCaptura(
                 )
             }
 
+            Paso.NO_SE_PUDO_LEER -> Centrado {
+                Text(
+                    estado.mensaje,
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color.White,
+                    textAlign = TextAlign.Center
+                )
+                Button(
+                    onClick = viewModel::reintentarFotos,
+                    modifier = Modifier.padding(top = 32.dp)
+                ) {
+                    Text("Volver a tomar la foto")
+                }
+                TextButton(
+                    onClick = viewModel::capturarAMano,
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    Text("Capturar los datos a mano", color = Color.LightGray)
+                }
+            }
+
             Paso.CONFIRMAR -> PantallaDatos(
                 tipoDocumento = estado.tipoDocumento,
                 inicial = estado.prellenado,

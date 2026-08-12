@@ -34,6 +34,13 @@ enum class Paso {
     LEYENDO,
 
     /**
+     * No se pudo leer el documento. Se ofrece repetir la foto antes de mandar a
+     * teclear: la mayoría de las fallas del OCR son un reflejo o un desenfoque,
+     * y repetir es mucho más rápido que capturar un CURP a mano.
+     */
+    NO_SE_PUDO_LEER,
+
+    /**
      * Revisión de los datos antes de mandarlos. Llega con lo que se leyó del
      * documento, o vacío cuando ni el código ni el OCR sirvieron y le toca
      * capturar a una persona.
@@ -254,12 +261,38 @@ class CapturaViewModel(
         )
     }
 
-    /** Tercer escalón: no se pudo leer nada, captura una persona. */
+    /**
+     * No salió nada del documento. Antes de mandar a teclear se ofrece repetir
+     * la foto, porque casi siempre la causa es un reflejo o un desenfoque y
+     * repetir cuesta segundos frente a capturar un CURP a mano.
+     */
     private fun pedirCapturaManual() {
         _estado.value = _estado.value.copy(
-            paso = Paso.CONFIRMAR,
-            mensaje = "No se pudo leer el documento. Pide ayuda en recepción.",
+            paso = Paso.NO_SE_PUDO_LEER,
+            mensaje = "No se pudieron leer los datos. Acomoda el documento y evita reflejos.",
             avisoIdentidad = false,
+            prellenado = null
+        )
+    }
+
+    /** Repite la captura desde la primera foto, descartando las anteriores. */
+    fun reintentarFotos() {
+        limpiar()
+        _estado.value = EstadoCaptura(
+            paso = Paso.FRENTE,
+            tipoDocumento = tipo,
+            mensaje = when (tipo) {
+                TipoDocumento.INE -> "Coloca el FRENTE de tu credencial"
+                TipoDocumento.PASAPORTE -> "Coloca la página de datos de tu pasaporte"
+            }
+        )
+    }
+
+    /** Tercer escalón: que una persona capture los datos. */
+    fun capturarAMano() {
+        _estado.value = _estado.value.copy(
+            paso = Paso.CONFIRMAR,
+            mensaje = "",
             prellenado = null
         )
     }
