@@ -182,9 +182,11 @@ class CapturaViewModel(
 
     /**
      * Segundo escalón. Corre OCR sobre las fotos que ya están tomadas, sin
-     * pedirle nada nuevo al huésped: primero el reverso (donde está la MRZ del
-     * pasaporte y la zona de datos de la INE) y, si no sale, el frente (donde el
-     * CURP viene impreso como texto).
+     * pedirle nada nuevo al huésped.
+     *
+     * El frente va primero: es donde la INE imprime el nombre, el domicilio y el
+     * CURP, y es también la única página del pasaporte. El reverso queda como
+     * segundo intento porque ahí no hay más que los códigos de barras.
      */
     private fun intentarOcr() {
         val ocr = reconocerTexto
@@ -195,7 +197,7 @@ class CapturaViewModel(
 
         _estado.value = _estado.value.copy(paso = Paso.LEYENDO, mensaje = "Leyendo el documento...")
 
-        val candidatos = listOfNotNull(reverso, frente)
+        val candidatos = listOfNotNull(frente, reverso)
         if (candidatos.isEmpty()) {
             pedirCapturaManual()
             return

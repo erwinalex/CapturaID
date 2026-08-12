@@ -39,9 +39,25 @@ class LectorDocumentos {
 
     private val separadores = listOf('|', '^', '\n', '\t', '~')
 
-    /** Etiquetas impresas en la INE que anteceden al dato que interesa. */
+    /**
+     * Etiquetas impresas en el frente de la INE. Están confirmadas contra
+     * credenciales reales: el dato viene siempre justo después de su etiqueta,
+     * lo que las vuelve un ancla más fiable que cualquier heurística de forma.
+     */
     private val etiquetasNombre = listOf("NOMBRE")
     private val etiquetasDomicilio = listOf("DOMICILIO")
+    private val etiquetaCurp = "CURP"
+
+    /**
+     * Todas las etiquetas del frente. Sirven para saber dónde termina un dato:
+     * al toparse con la siguiente etiqueta, el valor anterior se acabó.
+     */
+    private val todasLasEtiquetas = listOf(
+        "NOMBRE", "DOMICILIO", "CLAVE DE ELECTOR", "CURP", "FECHA DE NACIMIENTO",
+        "SEXO", "ESTADO", "MUNICIPIO", "LOCALIDAD", "SECCION", "SECCIÓN",
+        "AÑO DE REGISTRO", "ANO DE REGISTRO", "VIGENCIA", "EMISION", "EMISIÓN",
+        "INSTITUTO NACIONAL ELECTORAL", "CREDENCIAL PARA VOTAR", "REGISTRO"
+    )
 
     // ---------------------------------------------------------------- INE ---
 
@@ -84,7 +100,12 @@ class LectorDocumentos {
      * sin cambios.
      */
     fun leerOcrIne(texto: String, anio: Int, mes: Int, dia: Int): ResultadoLectura {
-        val curp = Curp.buscarEn(texto)
+        // Primero anclado a la etiqueta, que en todas las credenciales aparece
+        // justo antes del dato; si de ahí no sale un CURP válido, se busca por
+        // forma en todo el texto. El ancla evita confundirse con la clave de
+        // elector, que también son 18 caracteres alfanuméricos.
+        val curp = curpTrasEtiqueta(texto)
+            ?: Curp.buscarEn(texto)
             ?: return ResultadoLectura.NoReconocido(texto.length)
 
         val renglones = texto.lines().map { it.trim() }.filter { it.isNotEmpty() }
@@ -94,6 +115,9 @@ class LectorDocumentos {
                 identidad = curp,
                 tipoDocumento = TipoDocumento.INE,
                 origen = OrigenDatos.OCR,
+                // Tres renglones para el nombre: la INE imprime apellido
+                // paterno, materno y nombres en líneas separadas bajo la misma
+                // etiqueta.
                 nombre = valorTrasEtiqueta(renglones, etiquetasNombre, maxRenglones = 3),
                 direccion = valorTrasEtiqueta(renglones, etiquetasDomicilio, maxRenglones = 3),
                 nacionalidad = "MEXICANA",
@@ -172,16 +196,45 @@ class LectorDocumentos {
         }
         if (indice < 0) return null
 
-        val todasLasEtiquetas = etiquetasNombre + etiquetasDomicilio +
-            listOf("CLAVE DE ELECTOR", "CURP", "FECHA DE NACIMIENTO", "SEXO", "ESTADO", "MUNICIPIO")
+        // A veces el OCR deja el valor en el mismo renglón que la etiqueta
+        // ("NOMBRE JUAN PEREZ") y a veces lo baja al siguiente. Se contemplan
+        // los dos casos.
+        val mismoRenglon = renglones[indice].uppercase()
+            .removePrefix(etiquetas.first { renglones[indice].uppercase().startsWith(it) })
+            .trim()
 
-        val valor = renglones
+        val siguientes = renglones
             .drop(indice + 1)
             .takeWhile { renglon -> todasLasEtiquetas.none { renglon.uppercase().startsWith(it) } }
             .take(maxRenglones)
+
+        val valor = (listOf(mismoRenglon) + siguientes)
+            .filter { it.isNotBlank() }
             .joinToString(" ")
             .trim()
 
         return valor.ifBlank { null }?.uppercase()
+    }
+
+    /**
+     * Toma los 18 caracteres alfanuméricos que siguen a la etiqueta "CURP",
+     * saltándose espacios y saltos de línea, y solo lo devuelve si cumple la
+     * estructura oficial. Si el OCR leyó mal un carácter, esto falla y se cae a
+     * la búsqueda por forma — es preferible eso a devolver un CURP inventado,
+     * que crearía un huésped duplicado.
+     */
+    private fun curpTrasEtiqueta(texto: String): String? {
+        val mayusculas = texto.uppercase()
+        val posicion = mayusculas.indexOf(etiquetaCurp)
+        if (posicion < 0) return null
+
+        val despues = mayusculas
+            .substring(posicion + etiquetaCurp.length)
+            .filter { it.isLetterOrDigit() }
+
+        if (despues.length < 18) return null
+
+        val candidato = despues.take(18)
+        return if (Curp.tieneEstructuraValida(candidato)) candidato else null
     }
 }

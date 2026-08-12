@@ -51,16 +51,31 @@ existen.
 
 ### 1. Código de barras — **QR primero, PDF417 después**
 
-Es lo más confiable cuando funciona: no hay interpretación de por medio. Se
-prefiere el QR porque en los modelos de credencial que traen los dos es el más
-nuevo y el que se lee con menos reintentos; un QR reconocido reemplaza a un
-PDF417 que ya se había leído.
+Es lo más confiable cuando funciona: no hay interpretación de por medio.
+
+**En la INE que se probó, este escalón no aporta nada**: el QR pequeño del
+reverso solo lleva un enlace al sitio del INE, sin datos del titular. Se
+mantiene porque no cuesta —el escáner ya está corriendo para la vista previa— y
+porque otros modelos de credencial podrían traer algo aprovechable. El modo
+diagnóstico busca *todos* los formatos, no solo QR y PDF417, para poder
+identificar los códigos grandes del reverso.
 
 ### 2. OCR de las fotos que ya se tomaron
 
-Entra cuando el código está rayado, borroso o el modelo no lo trae legible.
-**No se le pide nada nuevo al huésped**: corre sobre las mismas imágenes que ya
-se capturaron, primero el reverso y luego el frente.
+**Es el camino que de verdad funciona con la INE.** No se le pide nada nuevo al
+huésped: corre sobre las mismas imágenes que ya se capturaron, empezando por el
+**frente**, que es donde la credencial imprime nombre, domicilio y CURP.
+
+El CURP se busca anclado a su etiqueta: en todas las credenciales la palabra
+`CURP` va justo antes del dato, y lo mismo `NOMBRE` y `DOMICILIO`. El ancla es
+más fiable que buscar por forma, y sobre todo evita confundir el CURP con la
+**clave de elector**, que también son 18 caracteres alfanuméricos y aparece
+antes en el texto.
+
+Si lo que sigue a la etiqueta no cumple la estructura de un CURP —porque el OCR
+leyó un `0` como `O`, por ejemplo— no se da por bueno: se cae a la búsqueda por
+forma y, si tampoco, a captura manual. Devolver un CURP inventado crearía un
+huésped duplicado que nadie notaría.
 
 ### 3. Captura manual
 

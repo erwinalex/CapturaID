@@ -121,6 +121,70 @@ class LectorDocumentosTest {
         assertTrue(documento.direccion!!.startsWith("CALLE FALSA 123"))
     }
 
+    /**
+     * El texto tal como sale del OCR de una credencial real: la etiqueta en un
+     * renglón y el dato en los siguientes, con el nombre partido en apellido
+     * paterno, materno y nombres.
+     */
+    @Test
+    fun `lee el frente de una ine con el formato real`() {
+        val ocr = """
+            INSTITUTO NACIONAL ELECTORAL
+            CREDENCIAL PARA VOTAR
+            NOMBRE
+            MENDOZA
+            LOPEZ
+            MARIO
+            DOMICILIO
+            C ANDADOR 20 DE NOVIEMBRE 45
+            COL CENTRO 06000
+            CIUDAD DE MEXICO
+            CLAVE DE ELECTOR MNLPMR85031509H400
+            CURP $curp
+            ANO DE REGISTRO 2019 01
+            SECCION 1234
+        """.trimIndent()
+
+        val documento = exito(lector.leerOcrIne(ocr, 2025, 6, 1))
+
+        assertEquals(curp, documento.identidad)
+        assertEquals("MENDOZA LOPEZ MARIO", documento.nombre)
+        assertTrue(documento.direccion!!.startsWith("C ANDADOR 20 DE NOVIEMBRE 45"))
+    }
+
+    /**
+     * La clave de elector también son 18 caracteres alfanuméricos y va antes del
+     * CURP en la credencial. Anclar a la etiqueta es lo que evita confundirlas.
+     */
+    @Test
+    fun `no confunde la clave de elector con el curp`() {
+        val ocr = "CLAVE DE ELECTOR MNLPMR85031509H400\nCURP $curp"
+
+        assertEquals(curp, exito(lector.leerOcrIne(ocr, 2025, 6, 1)).identidad)
+    }
+
+    @Test
+    fun `tolera que el ocr deje el valor en el mismo renglon que la etiqueta`() {
+        val ocr = "NOMBRE MENDOZA LOPEZ MARIO\nDOMICILIO CALLE 5 NUM 10\nCURP $curp"
+
+        val documento = exito(lector.leerOcrIne(ocr, 2025, 6, 1))
+
+        assertEquals("MENDOZA LOPEZ MARIO", documento.nombre)
+        assertEquals("CALLE 5 NUM 10", documento.direccion)
+    }
+
+    /**
+     * Si el OCR leyó mal un carácter del CURP, el ancla no debe devolver algo
+     * inventado: es preferible caer a la búsqueda por forma o a captura manual
+     * que crear un huésped duplicado.
+     */
+    @Test
+    fun `un curp mal leido tras la etiqueta no se da por bueno`() {
+        val ocr = "CURP MELM85O315HDFNPRO7"  // ceros leídos como letra O
+
+        assertTrue(lector.leerOcrIne(ocr, 2025, 6, 1) is ResultadoLectura.NoReconocido)
+    }
+
     @Test
     fun `el ocr sin curp no se da por bueno`() {
         val resultado = lector.leerOcrIne("INSTITUTO NACIONAL ELECTORAL\nJUAN PEREZ", 2025, 6, 1)

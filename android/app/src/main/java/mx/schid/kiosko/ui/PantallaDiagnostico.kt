@@ -18,6 +18,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -55,13 +56,19 @@ fun PantallaDiagnostico(alSalir: () -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val portapapeles = LocalClipboardManager.current
 
-    val camara = remember { CamaraKiosko(contexto, lifecycleOwner) }
+    // Con todos los formatos: en el reverso de la INE hay códigos grandes que no
+    // son ni QR ni PDF417, y sin esto el escáner ni los mira.
+    val camara = remember { CamaraKiosko(contexto, lifecycleOwner, todosLosFormatos = true) }
 
-    var codigo by remember { mutableStateOf<CodigoLeido?>(null) }
+    // Se acumulan por formato: el reverso trae varios códigos y hay que poder
+    // verlos todos, no solo el último que pasó por la cámara.
+    val codigos = remember { mutableStateMapOf<String, CodigoLeido>() }
     var textoOcr by remember { mutableStateOf<String?>(null) }
     var analizando by remember { mutableStateOf(false) }
 
-    val alDetectar by rememberUpdatedState<(CodigoLeido) -> Unit> { leido -> codigo = leido }
+    val alDetectar by rememberUpdatedState<(CodigoLeido) -> Unit> { leido ->
+        codigos[leido.nombreFormato + "/" + leido.contenido.length] = leido
+    }
 
     DisposableEffect(camara) {
         onDispose { camara.liberar() }
@@ -117,15 +124,16 @@ fun PantallaDiagnostico(alSalir: () -> Unit) {
                 .padding(top = 16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            Seccion("Código de barras") {
-                val leido = codigo
-                if (leido == null) {
-                    Text("Todavía no se ha leído ningún código. Acerca el reverso del documento.")
+            Seccion("Códigos de barras (${codigos.size})") {
+                if (codigos.isEmpty()) {
+                    Text("Todavía no se ha leído ningún código. Mueve el documento despacio.")
                 } else {
-                    Text("Formato: ${leido.origen}")
-                    Text("Largo: ${leido.contenido.length} caracteres")
-                    Text("¿Trae un CURP reconocible?: ${Curp.buscarEn(leido.contenido) ?: "no"}")
-                    Crudo(leido.contenido)
+                    codigos.values.forEach { leido ->
+                        Text("Formato: ${leido.nombreFormato}")
+                        Text("Largo: ${leido.contenido.length} caracteres")
+                        Text("¿Trae un CURP reconocible?: ${Curp.buscarEn(leido.contenido) ?: "no"}")
+                        Crudo(leido.contenido)
+                    }
                 }
             }
 
@@ -145,8 +153,15 @@ fun PantallaDiagnostico(alSalir: () -> Unit) {
         Button(
             onClick = {
                 val informe = buildString {
-                    appendLine("=== CÓDIGO DE BARRAS ===")
-                    appendLine(codigo?.let { "Formato: ${it.origen}\n${it.contenido}" } ?: "(ninguno)")
+                    appendLine("=== CÓDIGOS DE BARRAS (${codigos.size}) ===")
+                    if (codigos.isEmpty()) {
+                        appendLine("(ninguno)")
+                    } else {
+                        codigos.values.forEach {
+                            appendLine("--- ${it.nombreFormato}, ${it.contenido.length} caracteres")
+                            appendLine(it.contenido)
+                        }
+                    }
                     appendLine()
                     appendLine("=== OCR ===")
                     appendLine(textoOcr ?: "(ninguno)")

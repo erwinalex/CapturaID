@@ -25,7 +25,31 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 /** Un código leído, junto con de qué tipo era. */
-data class CodigoLeido(val contenido: String, val origen: OrigenDatos)
+data class CodigoLeido(
+    val contenido: String,
+    val origen: OrigenDatos,
+    /** El formato tal como lo reporta ML Kit. Solo lo usa el modo diagnóstico. */
+    val formatoCrudo: Int = Barcode.FORMAT_UNKNOWN
+) {
+    /** Nombre legible del formato, para poder identificar un código desconocido. */
+    val nombreFormato: String
+        get() = when (formatoCrudo) {
+            Barcode.FORMAT_QR_CODE -> "QR"
+            Barcode.FORMAT_PDF417 -> "PDF417"
+            Barcode.FORMAT_AZTEC -> "Aztec"
+            Barcode.FORMAT_DATA_MATRIX -> "DataMatrix"
+            Barcode.FORMAT_CODE_128 -> "Code128"
+            Barcode.FORMAT_CODE_39 -> "Code39"
+            Barcode.FORMAT_CODE_93 -> "Code93"
+            Barcode.FORMAT_CODABAR -> "Codabar"
+            Barcode.FORMAT_EAN_13 -> "EAN-13"
+            Barcode.FORMAT_EAN_8 -> "EAN-8"
+            Barcode.FORMAT_ITF -> "ITF"
+            Barcode.FORMAT_UPC_A -> "UPC-A"
+            Barcode.FORMAT_UPC_E -> "UPC-E"
+            else -> "desconocido ($formatoCrudo)"
+        }
+}
 
 /**
  * Cámara del kiosko: vista previa, toma de foto, lectura de códigos y OCR.
@@ -52,7 +76,14 @@ data class CodigoLeido(val contenido: String, val origen: OrigenDatos)
  */
 class CamaraKiosko(
     private val contexto: Context,
-    private val lifecycleOwner: LifecycleOwner
+    private val lifecycleOwner: LifecycleOwner,
+    /**
+     * El modo diagnóstico busca TODOS los formatos, para poder identificar un
+     * código que no sabemos qué es. En el flujo normal se limitan los formatos
+     * para que el detector no gaste tiempo en los que no vienen en un documento
+     * de identidad.
+     */
+    private val todosLosFormatos: Boolean = false
 ) {
 
     private var imageCapture: ImageCapture? = null
@@ -65,14 +96,15 @@ class CamaraKiosko(
 
     private val ejecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
-    private val escaner: BarcodeScanner = BarcodeScanning.getClient(
-        BarcodeScannerOptions.Builder()
-            // El reverso de la INE trae PDF417, y los modelos nuevos además un
-            // QR. Se limitan los formatos para que el detector no gaste tiempo
-            // buscando los otros doce.
-            .setBarcodeFormats(Barcode.FORMAT_QR_CODE, Barcode.FORMAT_PDF417)
-            .build()
-    )
+    private val escaner: BarcodeScanner = if (todosLosFormatos) {
+        BarcodeScanning.getClient()
+    } else {
+        BarcodeScanning.getClient(
+            BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(Barcode.FORMAT_QR_CODE, Barcode.FORMAT_PDF417)
+                .build()
+        )
+    }
 
     private val reconocedorTexto = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
@@ -219,7 +251,7 @@ private class AnalizadorDeCodigos(
                         } else {
                             OrigenDatos.PDF417
                         }
-                        alLeer(CodigoLeido(contenido, origen))
+                        alLeer(CodigoLeido(contenido, origen, codigo.format))
                     }
             }
             .addOnCompleteListener { imagen.close() }
