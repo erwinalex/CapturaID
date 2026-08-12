@@ -59,6 +59,17 @@ class LectorDocumentos {
         "INSTITUTO NACIONAL ELECTORAL", "CREDENCIAL PARA VOTAR", "REGISTRO"
     )
 
+    private val etiquetaFechaNacimiento = "FECHA DE NACIMIENTO"
+
+    /**
+     * Compara ignorando los espacios. El OCR pega palabras seguido —en una
+     * credencial real devolvió "FECHADE NACIMIENTO"— y una comparación literal
+     * dejaría de reconocer la etiqueta por un espacio que se perdió.
+     */
+    private fun empiezaConEtiqueta(renglon: String, etiqueta: String): Boolean =
+        renglon.uppercase().filter { !it.isWhitespace() }
+            .startsWith(etiqueta.filter { !it.isWhitespace() })
+
     // ---------------------------------------------------------------- INE ---
 
     /**
@@ -104,7 +115,7 @@ class LectorDocumentos {
         // justo antes del dato; si de ahí no sale un CURP válido, se busca por
         // forma en todo el texto. El ancla evita confundirse con la clave de
         // elector, que también son 18 caracteres alfanuméricos.
-        val curp = curpTrasEtiqueta(texto)
+        val curp = curpTrasEtiqueta(texto, anio)
             ?: Curp.buscarEn(texto)
             ?: return ResultadoLectura.NoReconocido(texto.length)
 
@@ -121,7 +132,12 @@ class LectorDocumentos {
                 nombre = valorTrasEtiqueta(renglones, etiquetasNombre, maxRenglones = 3),
                 direccion = valorTrasEtiqueta(renglones, etiquetasDomicilio, maxRenglones = 3),
                 nacionalidad = "MEXICANA",
-                edad = Curp.edad(curp, anio, mes, dia),
+                // La fecha impresa manda sobre la que se deduce del CURP: viene
+                // con el año completo, así que no hay que adivinar el siglo a
+                // partir de la homoclave —que es justo el carácter que el OCR
+                // confunde más.
+                edad = edadDeFechaImpresa(renglones, anio, mes, dia)
+                    ?: Curp.edad(curp, anio, mes, dia),
                 identidadConsistente = Curp.digitoVerificadorCoincide(curp)
             )
         )
@@ -192,20 +208,21 @@ class LectorDocumentos {
         maxRenglones: Int
     ): String? {
         val indice = renglones.indexOfFirst { renglon ->
-            etiquetas.any { renglon.uppercase().startsWith(it) }
+            etiquetas.any { empiezaConEtiqueta(renglon, it) }
         }
         if (indice < 0) return null
 
         // A veces el OCR deja el valor en el mismo renglón que la etiqueta
         // ("NOMBRE JUAN PEREZ") y a veces lo baja al siguiente. Se contemplan
         // los dos casos.
+        val etiquetaEncontrada = etiquetas.first { empiezaConEtiqueta(renglones[indice], it) }
         val mismoRenglon = renglones[indice].uppercase()
-            .removePrefix(etiquetas.first { renglones[indice].uppercase().startsWith(it) })
+            .removePrefix(etiquetaEncontrada)
             .trim()
 
         val siguientes = renglones
             .drop(indice + 1)
-            .takeWhile { renglon -> todasLasEtiquetas.none { renglon.uppercase().startsWith(it) } }
+            .takeWhile { renglon -> todasLasEtiquetas.none { empiezaConEtiqueta(renglon, it) } }
             .take(maxRenglones)
 
         val valor = (listOf(mismoRenglon) + siguientes)
@@ -223,7 +240,7 @@ class LectorDocumentos {
      * la búsqueda por forma — es preferible eso a devolver un CURP inventado,
      * que crearía un huésped duplicado.
      */
-    private fun curpTrasEtiqueta(texto: String): String? {
+    private fun curpTrasEtiqueta(texto: String, anioActual: Int): String? {
         val mayusculas = texto.uppercase()
         val posicion = mayusculas.indexOf(etiquetaCurp)
         if (posicion < 0) return null
@@ -234,7 +251,35 @@ class LectorDocumentos {
 
         if (despues.length < 18) return null
 
-        val candidato = despues.take(18)
-        return if (Curp.tieneEstructuraValida(candidato)) candidato else null
+        // Se corrigen las confusiones del OCR según la estructura antes de
+        // validar. Sin esto, una letra O donde va un cero pasa desapercibida
+        // —el dígito de control no la detecta— y se manda un CURP equivocado.
+        return Curp.corregirLecturaOcr(despues.take(18), anioActual)
+    }
+
+    /**
+     * Edad a partir de la fecha de nacimiento impresa en la credencial, que
+     * viene como dd/mm/aaaa. Es más fiable que deducirla del CURP porque trae
+     * el año completo.
+     */
+    private fun edadDeFechaImpresa(
+        renglones: List<String>,
+        anio: Int,
+        mes: Int,
+        dia: Int
+    ): Int? {
+        val indice = renglones.indexOfFirst { empiezaConEtiqueta(it, etiquetaFechaNacimiento) }
+        if (indice < 0) return null
+
+        val candidatos = renglones.drop(indice).take(3)
+        val fecha = candidatos.firstNotNullOfOrNull {
+            Regex("(\\d{2})/(\\d{2})/(\\d{4})").find(it)
+        } ?: return null
+
+        val (diaNac, mesNac, anioNac) = fecha.destructured
+        val edad = anio - anioNac.toInt() -
+            if (mes < mesNac.toInt() || (mes == mesNac.toInt() && dia < diaNac.toInt())) 1 else 0
+
+        return if (edad in 0..120) edad else null
     }
 }

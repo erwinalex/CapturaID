@@ -108,6 +108,65 @@ object Curp {
         return curp[17].digitToIntOrNull() == esperado
     }
 
+    /**
+     * Confusiones típicas del OCR. La estructura del CURP dice qué posiciones
+     * son forzosamente dígitos y cuáles forzosamente letras, así que cada
+     * carácter fuera de sitio se puede corregir sin adivinar.
+     */
+    private val COMO_DIGITO = mapOf(
+        'O' to '0', 'Q' to '0', 'D' to '0', 'I' to '1', 'L' to '1',
+        'S' to '5', 'B' to '8', 'G' to '6', 'Z' to '2'
+    )
+
+    private val COMO_LETRA = mapOf(
+        '0' to 'O', '1' to 'I', '5' to 'S', '8' to 'B', '6' to 'G', '2' to 'Z'
+    )
+
+    /**
+     * Corrige las confusiones del OCR usando la estructura del CURP.
+     *
+     * Nace de un caso real: sobre una credencial se leyó `...HDFRSRO5`, con
+     * letra O donde va un cero. **El dígito de control no lo detecta** —la
+     * diferencia entre O (25) y 0, multiplicada por el peso 2 de esa posición,
+     * es múltiplo de 10— así que sin esta corrección el CURP equivocado se
+     * habría mandado al servidor con toda apariencia de estar bien, y habría
+     * creado un huésped duplicado el día que el OCR lo leyera correctamente.
+     *
+     * @param anioActual para decidir el siglo de nacimiento.
+     * @return el CURP corregido, o null si ni así cumple la estructura.
+     */
+    fun corregirLecturaOcr(candidato: String, anioActual: Int): String? {
+        val bruto = normalizar(candidato) ?: return null
+        if (bruto.length != LARGO) return null
+
+        val corregido = StringBuilder(bruto)
+
+        // Fecha de nacimiento y dígito de control: solo dígitos.
+        for (i in (4..9) + listOf(17)) {
+            if (!corregido[i].isDigit()) {
+                corregido[i] = COMO_DIGITO[corregido[i]] ?: corregido[i]
+            }
+        }
+
+        // Iniciales, sexo, entidad y consonantes: solo letras.
+        for (i in (0..3) + (10..15)) {
+            if (!corregido[i].isLetter()) {
+                corregido[i] = COMO_LETRA[corregido[i]] ?: corregido[i]
+            }
+        }
+
+        // La homoclave es dígito para quienes nacieron antes del 2000 y letra
+        // para después. Si leer el año como 20AA cayera en el futuro, la persona
+        // nació en el siglo pasado y ahí va forzosamente un dígito.
+        val anio2 = corregido.substring(4, 6).toIntOrNull()
+        if (anio2 != null && 2000 + anio2 > anioActual && !corregido[16].isDigit()) {
+            corregido[16] = COMO_DIGITO[corregido[16]] ?: corregido[16]
+        }
+
+        val resultado = corregido.toString()
+        return if (tieneEstructuraValida(resultado)) resultado else null
+    }
+
     /** Fecha de nacimiento en formato AAMMDD que trae el propio CURP. */
     fun fechaNacimiento(valor: String): String? {
         val curp = normalizar(valor)

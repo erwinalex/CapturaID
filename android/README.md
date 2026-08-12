@@ -72,10 +72,28 @@ más fiable que buscar por forma, y sobre todo evita confundir el CURP con la
 **clave de elector**, que también son 18 caracteres alfanuméricos y aparece
 antes en el texto.
 
-Si lo que sigue a la etiqueta no cumple la estructura de un CURP —porque el OCR
-leyó un `0` como `O`, por ejemplo— no se da por bueno: se cae a la búsqueda por
-forma y, si tampoco, a captura manual. Devolver un CURP inventado crearía un
-huésped duplicado que nadie notaría.
+### La corrección de lecturas del OCR
+
+Sobre una credencial real el OCR devolvió `...HDFRSRO5`: una letra **O** donde
+va un **cero**. Y **el dígito de control no lo detecta** — la diferencia entre
+`O` (25) y `0`, por el peso 2 de esa posición, es múltiplo de 10. Sin corregirlo,
+un CURP equivocado se manda al servidor con toda apariencia de estar bien, y el
+día que el OCR lo lea correctamente aparece un huésped duplicado que nadie
+relaciona con el primero.
+
+La estructura del CURP dice qué posiciones son forzosamente dígitos (la fecha de
+nacimiento y el dígito de control) y cuáles forzosamente letras (iniciales,
+sexo, entidad, consonantes). Cada carácter fuera de sitio se corrige con esa
+regla, no adivinando. La homoclave se resuelve aparte: es un dígito para quienes
+nacieron antes del 2000, y si leer el año como `20AA` cayera en el futuro, la
+persona nació en el siglo pasado.
+
+Si ni corrigiendo se sostiene la estructura, no se inventa nada: se cae a la
+búsqueda por forma y, de ahí, a captura manual.
+
+La edad se toma de la **fecha impresa** en la credencial, no de la que se deduce
+del CURP: viene con el año completo y así no hay que adivinar el siglo a partir
+de la homoclave, que es justo el carácter que más se confunde.
 
 ### 3. Captura manual
 

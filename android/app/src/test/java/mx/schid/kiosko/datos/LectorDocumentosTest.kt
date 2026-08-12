@@ -174,13 +174,24 @@ class LectorDocumentosTest {
     }
 
     /**
-     * Si el OCR leyó mal un carácter del CURP, el ancla no debe devolver algo
-     * inventado: es preferible caer a la búsqueda por forma o a captura manual
-     * que crear un huésped duplicado.
+     * Las confusiones del OCR se corrigen con la estructura: en la fecha solo
+     * puede haber dígitos, así que una letra O ahí es forzosamente un cero. No
+     * es adivinar, es leer la regla del propio formato.
      */
     @Test
-    fun `un curp mal leido tras la etiqueta no se da por bueno`() {
-        val ocr = "CURP MELM85O315HDFNPRO7"  // ceros leídos como letra O
+    fun `corrige los ceros que el ocr leyo como letra O`() {
+        val ocr = "CURP MELM85O315HDFNPRO7"
+
+        assertEquals("MELM850315HDFNPR07", exito(lector.leerOcrIne(ocr, 2025, 6, 1)).identidad)
+    }
+
+    /**
+     * Pero cuando ni corrigiendo se sostiene la estructura, no se inventa nada:
+     * se cae a captura manual antes que crear un huésped con un CURP falso.
+     */
+    @Test
+    fun `un candidato irrecuperable no se da por bueno`() {
+        val ocr = "CURP 123456789012345678"
 
         assertTrue(lector.leerOcrIne(ocr, 2025, 6, 1) is ResultadoLectura.NoReconocido)
     }
@@ -263,5 +274,74 @@ class LectorDocumentosTest {
         val resultado = lector.leerOcrPasaporte("PASSPORT\nANNA MARIA ERIKSSON", 2025, 6, 1)
 
         assertTrue(resultado is ResultadoLectura.NoReconocido)
+    }
+
+    // ------------------------------------ el texto real de una credencial ---
+
+    /**
+     * Reproduce el texto exacto que devolvió el OCR sobre una credencial real
+     * (con los datos personales sustituidos): el encabezado del INE, el nombre
+     * partido en tres renglones bajo su etiqueta, el domicilio en tres, la clave
+     * de elector en el mismo renglón que su etiqueta, y el CURP en el siguiente.
+     *
+     * El CURP viene con letra O donde va un cero — así lo leyó el OCR de verdad.
+     */
+    private val ocrCredencialReal = """
+        UNIDOS
+        MÉXICO
+        INSTITUTO NACIONAL ELECTORAL
+        CREDENCIAL PARA VOTAR
+        NOMBRE
+        MENDOZA
+        ESCOBEDO
+        MARIO ALBERTO
+        DOMICILIO
+        COLIVOS MZ 5 LT 16
+        -TLALMANALCO 56700
+        TLALMANALCO, MEX.
+        CLAVE DE ELECTOR MNESMR80102609H400
+        CURP
+        MELM801026HDFNPRO2
+        FECHADE NACIMIENTO
+        26/10/1980
+        SECCIÓN
+        1739
+    """.trimIndent()
+
+    @Test
+    fun `lee el texto tal como sale de una credencial real`() {
+        val documento = exito(lector.leerOcrIne(ocrCredencialReal, 2025, 6, 1))
+
+        assertEquals("MENDOZA ESCOBEDO MARIO ALBERTO", documento.nombre)
+        assertEquals("COLIVOS MZ 5 LT 16 -TLALMANALCO 56700 TLALMANALCO, MEX.", documento.direccion)
+    }
+
+    /**
+     * El caso que se encontró en campo: el OCR leyó la homoclave `0` como letra
+     * `O`. El dígito de control NO lo detecta, porque la diferencia entre O (25)
+     * y 0, por el peso 2 de esa posición, es múltiplo de 10. Sin corregirlo se
+     * mandaría un CURP equivocado con toda apariencia de estar bien.
+     */
+    @Test
+    fun `corrige la letra O que el ocr puso donde va un cero`() {
+        val documento = exito(lector.leerOcrIne(ocrCredencialReal, 2025, 6, 1))
+
+        assertEquals("MELM801026HDFNPR02", documento.identidad)
+    }
+
+    @Test
+    fun `la edad sale de la fecha impresa y no de la homoclave`() {
+        // Nacido el 26/10/1980: en junio de 2025 todavía tiene 44.
+        assertEquals(44, exito(lector.leerOcrIne(ocrCredencialReal, 2025, 6, 1)).edad)
+        // Y el 26 de octubre cumple 45.
+        assertEquals(45, exito(lector.leerOcrIne(ocrCredencialReal, 2025, 10, 26)).edad)
+    }
+
+    /** La etiqueta llegó pegada ("FECHADE"); no debe impedir leer la fecha. */
+    @Test
+    fun `reconoce una etiqueta a la que el ocr le comio el espacio`() {
+        val texto = "CURP\nMELM801026HDFNPR02\nFECHADE NACIMIENTO\n26/10/1980"
+
+        assertEquals(44, exito(lector.leerOcrIne(texto, 2025, 6, 1)).edad)
     }
 }
