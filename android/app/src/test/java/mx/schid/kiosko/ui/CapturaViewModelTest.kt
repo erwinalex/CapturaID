@@ -328,4 +328,30 @@ class CapturaViewModelTest {
         assertNull(vm.estado.value.prellenado)
         assertTrue(enviador.enviados.isEmpty())
     }
+
+    /**
+     * El kiosko atiende a un huésped tras otro sin reiniciarse. Si algo del
+     * ciclo anterior se quedara pegado, la segunda captura fallaría.
+     */
+    @Test
+    fun `dos capturas seguidas funcionan igual`() = runTest(dispatcher) {
+        val vm = crear()
+
+        // Primera
+        vm.avanzarHastaReverso()
+        vm.codigoDetectado(CodigoLeido("0123|JUAN PEREZ|$curp", OrigenDatos.QR))
+        vm.reversoCapturado(jpeg)
+        assertEquals(Paso.CONFIRMAR, vm.estado.value.paso)
+        vm.confirmar(vm.estado.value.prellenado!!)
+        dispatcher.scheduler.advanceUntilIdle()
+        vm.volverAlInicio()
+
+        // Segunda
+        vm.avanzarHastaReverso()
+        vm.codigoDetectado(CodigoLeido("0123|ANA GIL|MELM850315HDFNPR07", OrigenDatos.QR))
+        vm.reversoCapturado(jpeg)
+
+        assertEquals(Paso.CONFIRMAR, vm.estado.value.paso)
+        assertNotNull("La segunda captura también debe prellenar", vm.estado.value.prellenado)
+    }
 }

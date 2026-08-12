@@ -99,6 +99,18 @@ Antes de producción hay que **escanear una credencial real y confirmar qué tra
 el código**. Si no viniera nada aprovechable, la cadena cae sola en OCR y, si
 acaso, en captura manual — que es justo para lo que están.
 
+Para eso está el **modo diagnóstico**, en *Ajustes → Diagnóstico de lectura*:
+enseña tal cual el contenido del código y el texto que reconoce el OCR, sin
+interpretarlos, y dice si encuentra un CURP en cada uno. Con eso se puede ver
+qué trae de verdad una credencial concreta y afinar el mapeo de nombre y
+domicilio. Muestra datos en claro, así que **es para configurar con un documento
+de prueba, no para el mostrador**; nada de lo que aparece ahí se guarda ni se
+manda a ningún lado.
+
+El CURP se busca dos veces: sobre el texto tal cual, y —si ahí no sale— sobre el
+texto compactado sin espacios ni saltos de línea. El OCR parte seguido el CURP
+en dos pedazos, y sin ese segundo intento una INE real no se reconocería.
+
 La edad se calcula del propio CURP, deduciendo el siglo de la homoclave (dígito
 para nacidos antes del 2000, letra para después).
 

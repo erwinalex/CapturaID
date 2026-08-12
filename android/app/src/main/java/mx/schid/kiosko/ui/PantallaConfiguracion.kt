@@ -33,6 +33,7 @@ import mx.schid.kiosko.config.ValidadorUrl
 @Composable
 fun PantallaConfiguracion(
     configuracion: ConfiguracionKiosko,
+    alAbrirDiagnostico: () -> Unit,
     alSalir: () -> Unit
 ) {
     var pinCapturado by remember { mutableStateOf("") }
@@ -79,11 +80,19 @@ fun PantallaConfiguracion(
         return
     }
 
-    Ajustes(configuracion = configuracion, alSalir = alSalir)
+    Ajustes(
+        configuracion = configuracion,
+        alAbrirDiagnostico = alAbrirDiagnostico,
+        alSalir = alSalir
+    )
 }
 
 @Composable
-private fun Ajustes(configuracion: ConfiguracionKiosko, alSalir: () -> Unit) {
+private fun Ajustes(
+    configuracion: ConfiguracionKiosko,
+    alAbrirDiagnostico: () -> Unit,
+    alSalir: () -> Unit
+) {
     var url by remember { mutableStateOf(configuracion.urlBase) }
     var token by remember { mutableStateOf(configuracion.token) }
     var pinNuevo by remember { mutableStateOf("") }
@@ -176,7 +185,11 @@ private fun Ajustes(configuracion: ConfiguracionKiosko, alSalir: () -> Unit) {
             Text("Guardar")
         }
 
-        TextButton(onClick = alSalir, modifier = Modifier.padding(top = 8.dp)) {
+        TextButton(onClick = alAbrirDiagnostico, modifier = Modifier.padding(top = 16.dp)) {
+            Text("Diagnóstico de lectura")
+        }
+
+        TextButton(onClick = alSalir) {
             Text("Volver al kiosko")
         }
     }

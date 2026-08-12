@@ -26,6 +26,7 @@ import mx.schid.kiosko.red.EnviadorHttp
 import mx.schid.kiosko.ui.CapturaViewModel
 import mx.schid.kiosko.ui.PantallaCaptura
 import mx.schid.kiosko.ui.PantallaConfiguracion
+import mx.schid.kiosko.ui.PantallaDiagnostico
 
 class MainActivity : ComponentActivity() {
 
@@ -62,10 +63,16 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     var enConfiguracion by remember { mutableStateOf(false) }
+                    var enDiagnostico by remember { mutableStateOf(false) }
 
                     when {
+                        enDiagnostico -> PantallaDiagnostico(
+                            alSalir = { enDiagnostico = false }
+                        )
+
                         enConfiguracion -> PantallaConfiguracion(
                             configuracion = configuracion,
+                            alAbrirDiagnostico = { enDiagnostico = true },
                             alSalir = { enConfiguracion = false }
                         )
 

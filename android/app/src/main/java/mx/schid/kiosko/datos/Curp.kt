@@ -43,17 +43,33 @@ object Curp {
      * forma, no por posición.
      */
     fun buscarEn(texto: String): String? {
-        val limpio = texto.uppercase()
-        if (limpio.length < LARGO) return null
+        // Primero sobre el texto tal cual. Es lo que funciona con el contenido
+        // de un código de barras, donde el CURP viene de corrido.
+        buscarEnCadena(texto.uppercase())?.let { return it }
 
-        // Se recorren TODAS las ventanas de 18 caracteres, solapadas. Con una
-        // expresión regular no alcanza: al buscar coincidencias de largo fijo no
-        // se solapan entre sí, así que un CURP que no empiece justo donde cayó
-        // el corte anterior queda invisible. Eso pasa exactamente en el caso que
-        // más importa cubrir, el de un formato que no reconocemos y donde el
-        // CURP no viene delimitado por separadores.
-        val candidatos = (0..(limpio.length - LARGO))
-            .map { limpio.substring(it, it + LARGO) }
+        // Y si ahí no salió, sobre el texto compactado. El OCR parte seguido el
+        // CURP con espacios o saltos de línea ("MELM850315 HDFNPR07"), y así
+        // ninguna ventana de 18 caracteres del texto original lo contiene
+        // completo. Se deja como segundo intento y no como único, porque quitar
+        // los separadores también podría pegar el final de un campo con el
+        // principio del siguiente.
+        val compactado = texto.uppercase().filter { it.isLetterOrDigit() }
+        return buscarEnCadena(compactado)
+    }
+
+    /**
+     * Recorre TODAS las ventanas de 18 caracteres, solapadas. Con una expresión
+     * regular no alcanza: al buscar coincidencias de largo fijo no se solapan
+     * entre sí, así que un CURP que no empiece justo donde cayó el corte
+     * anterior queda invisible. Eso pasa exactamente en el caso que más importa
+     * cubrir, el de un formato que no reconocemos y donde el CURP no viene
+     * delimitado por separadores.
+     */
+    private fun buscarEnCadena(cadena: String): String? {
+        if (cadena.length < LARGO) return null
+
+        val candidatos = (0..(cadena.length - LARGO))
+            .map { cadena.substring(it, it + LARGO) }
             .filter { tieneEstructuraValida(it) }
 
         // Si más de una ventana cumple la estructura, gana la que además cuadra

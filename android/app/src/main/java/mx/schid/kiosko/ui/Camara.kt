@@ -2,6 +2,7 @@ package mx.schid.kiosko.ui
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.BitmapFactory
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
@@ -29,10 +30,25 @@ data class CodigoLeido(val contenido: String, val origen: OrigenDatos)
 /**
  * Cámara del kiosko: vista previa, toma de foto, lectura de códigos y OCR.
  *
- * Las fotos NUNCA se escriben a disco. `ImageCapture.takePicture` se usa en su
- * variante en memoria y lo que sale es un arreglo de bytes que se manda y se
- * borra. Guardarlas aunque fuera temporalmente dejaría imágenes de documentos de
- * identidad en el almacenamiento de una tableta que está en un mostrador.
+ * ## Por qué se vincula una sola vez
+ *
+ * El kiosko entra y sale de la pantalla de cámara varias veces por captura, y
+ * muchas veces al día. La versión anterior volvía a vincular la cámara
+ * (`unbindAll` y de nuevo `bindToLifecycle`) cada vez que la vista aparecía, y a
+ * partir de la segunda vuelta dejaba de entregar códigos.
+ *
+ * Ahora los casos de uso se crean y vinculan **una sola vez**; lo único que pasa
+ * al volver a entrar es que se le engancha la nueva superficie de dibujo. Menos
+ * piezas que reconstruir es menos que se puede quedar a medias.
+ *
+ * ## Por qué el callback vive en un campo
+ *
+ * El analizador se crea al vincular, y si capturara la función de aviso se
+ * quedaría con la primera para siempre. Guardarla en un campo que se reemplaza
+ * en cada [conectar] hace imposible ese tipo de error.
+ *
+ * Las fotos NUNCA se escriben a disco: se capturan en memoria y lo que sale es
+ * un arreglo de bytes que se manda y se borra.
  */
 class CamaraKiosko(
     private val contexto: Context,
@@ -40,6 +56,13 @@ class CamaraKiosko(
 ) {
 
     private var imageCapture: ImageCapture? = null
+    private var preview: Preview? = null
+    private var vinculada = false
+
+    /** Lo lee el analizador en cada fotograma, así que nunca se queda viejo. */
+    @Volatile
+    private var alLeerCodigo: ((CodigoLeido) -> Unit)? = null
+
     private val ejecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     private val escaner: BarcodeScanner = BarcodeScanning.getClient(
@@ -53,13 +76,27 @@ class CamaraKiosko(
 
     private val reconocedorTexto = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
-    fun iniciar(vista: PreviewView, alLeerCodigo: (CodigoLeido) -> Unit) {
+    /**
+     * Engancha la vista previa. Se puede llamar tantas veces como haga falta: la
+     * primera vincula la cámara y las siguientes solo reemplazan la superficie.
+     */
+    fun conectar(vista: PreviewView, alLeerCodigo: (CodigoLeido) -> Unit) {
+        this.alLeerCodigo = alLeerCodigo
+
+        preview?.let {
+            it.setSurfaceProvider(vista.surfaceProvider)
+            return
+        }
+
+        if (vinculada) return
+        vinculada = true
+
         val futuro = ProcessCameraProvider.getInstance(contexto)
 
         futuro.addListener({
             val proveedor = futuro.get()
 
-            val preview = Preview.Builder().build().also {
+            val nuevoPreview = Preview.Builder().build().also {
                 it.setSurfaceProvider(vista.surfaceProvider)
             }
 
@@ -70,19 +107,33 @@ class CamaraKiosko(
             val analisis = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .build()
-                .also { it.setAnalyzer(ejecutor, AnalizadorDeCodigos(escaner, alLeerCodigo)) }
+                .also { analizador ->
+                    analizador.setAnalyzer(ejecutor, AnalizadorDeCodigos(escaner) { codigo ->
+                        alLeerCodigo?.invoke(codigo)
+                    })
+                }
 
-            proveedor.unbindAll()
             proveedor.bindToLifecycle(
                 lifecycleOwner,
                 CameraSelector.DEFAULT_BACK_CAMERA,
-                preview,
+                nuevoPreview,
                 captura,
                 analisis
             )
 
+            preview = nuevoPreview
             imageCapture = captura
         }, ContextCompat.getMainExecutor(contexto))
+    }
+
+    /**
+     * La vista previa se va de la pantalla. Se suelta la superficie —el
+     * PreviewView que la daba está por destruirse— pero la cámara sigue
+     * vinculada, lista para la próxima captura.
+     */
+    fun desconectar() {
+        alLeerCodigo = null
+        preview?.setSurfaceProvider(null)
     }
 
     /** Toma la foto en memoria y entrega el JPEG. */
@@ -108,12 +159,11 @@ class CamaraKiosko(
 
     /**
      * Corre OCR sobre un JPEG que ya se capturó. Es el segundo escalón de la
-     * cadena: se usa cuando el código de barras no se pudo decodificar, sobre
-     * las mismas fotos que ya se le tomaron al documento — no se le pide nada
-     * más al huésped.
+     * cadena: entra cuando el código de barras no se pudo decodificar, sobre las
+     * mismas fotos que ya se le tomaron al documento.
      */
     fun reconocerTexto(jpeg: ByteArray, alTerminar: (String?) -> Unit) {
-        val bitmap = android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+        val bitmap = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
         if (bitmap == null) {
             alTerminar(null)
             return
@@ -132,7 +182,9 @@ class CamaraKiosko(
         return bytes
     }
 
+    /** Se llama cuando la app deja de necesitar la cámara del todo. */
     fun liberar() {
+        alLeerCodigo = null
         escaner.close()
         reconocedorTexto.close()
         ejecutor.shutdown()
@@ -158,17 +210,17 @@ private class AnalizadorDeCodigos(
             .addOnSuccessListener { codigos ->
                 // El QR va primero: en los modelos de credencial que traen los
                 // dos, es el más nuevo y el que se lee con menos reintentos.
-                val ordenados = codigos.sortedBy { if (it.format == Barcode.FORMAT_QR_CODE) 0 else 1 }
-
-                ordenados.forEach { codigo ->
-                    val contenido = codigo.rawValue ?: return@forEach
-                    val origen = if (codigo.format == Barcode.FORMAT_QR_CODE) {
-                        OrigenDatos.QR
-                    } else {
-                        OrigenDatos.PDF417
+                codigos
+                    .sortedBy { if (it.format == Barcode.FORMAT_QR_CODE) 0 else 1 }
+                    .forEach { codigo ->
+                        val contenido = codigo.rawValue ?: return@forEach
+                        val origen = if (codigo.format == Barcode.FORMAT_QR_CODE) {
+                            OrigenDatos.QR
+                        } else {
+                            OrigenDatos.PDF417
+                        }
+                        alLeer(CodigoLeido(contenido, origen))
                     }
-                    alLeer(CodigoLeido(contenido, origen))
-                }
             }
             .addOnCompleteListener { imagen.close() }
     }

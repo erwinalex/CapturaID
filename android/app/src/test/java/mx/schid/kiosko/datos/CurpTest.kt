@@ -112,4 +112,31 @@ class CurpTest {
     fun `el digito verificador rechaza un largo equivocado`() {
         assertFalse(Curp.digitoVerificadorCoincide("MELM850315"))
     }
+
+    /**
+     * El OCR parte seguido el CURP con espacios o saltos de línea. Si solo se
+     * buscara sobre el texto tal cual, ninguna ventana de 18 caracteres lo
+     * contendría completo y una INE real nunca se reconocería.
+     */
+    @Test
+    fun `encuentra un curp que el ocr partio con espacios`() {
+        assertEquals(curpValido, Curp.buscarEn("CURP MELM850315 HDFNPR07"))
+        assertEquals(curpValido, Curp.buscarEn("CURP\nMELM850315\nHDFNPR07"))
+        assertEquals(curpValido, Curp.buscarEn("MELM 8503 15HD FNPR07"))
+    }
+
+    @Test
+    fun `sigue funcionando con el curp de corrido`() {
+        assertEquals(curpValido, Curp.buscarEn("CURP $curpValido FECHA"))
+    }
+
+    /**
+     * Compactar el texto no debe inventar CURPs pegando el final de un campo
+     * con el principio del siguiente.
+     */
+    @Test
+    fun `compactar no inventa curps donde no los hay`() {
+        assertNull(Curp.buscarEn("12345 67890 12345 67890"))
+        assertNull(Curp.buscarEn("NOMBRE JUAN\nAPELLIDO PEREZ\nSECCION 1234"))
+    }
 }

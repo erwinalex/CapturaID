@@ -191,21 +191,17 @@ private fun Camara(
     alDetectarCodigo: (CodigoLeido) -> Unit,
     alTomarFoto: (ByteArray?) -> Unit
 ) {
-    // El factory de AndroidView corre UNA sola vez, y los pasos FRENTE y REVERSO
-    // comparten este mismo composable: cualquier lambda que se capture ahí se
-    // queda congelada en la primera composición y nunca ve los cambios de
-    // estado. Aquí eso ya costó un error — el escáner quedaba desactivado para
-    // siempre porque capturó el estado de FRENTE. rememberUpdatedState mantiene
-    // una referencia viva a la última versión.
+    // El factory de AndroidView corre una sola vez, así que enganchar la cámara
+    // ahí dejaba congelado lo que se capturara. Se hace en `update`, que corre
+    // en cada recomposición: conectar es idempotente y barata después de la
+    // primera vez.
     val detectar by rememberUpdatedState(alDetectarCodigo)
 
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
-            factory = { contexto ->
-                PreviewView(contexto).also { vista ->
-                    camara.iniciar(vista) { codigo -> detectar(codigo) }
-                }
-            },
+            factory = { contexto -> PreviewView(contexto) },
+            update = { vista -> camara.conectar(vista) { codigo -> detectar(codigo) } },
+            onRelease = { camara.desconectar() },
             modifier = Modifier.fillMaxSize()
         )
 
