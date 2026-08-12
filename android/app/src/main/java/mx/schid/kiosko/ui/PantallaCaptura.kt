@@ -20,6 +20,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -78,7 +79,6 @@ fun PantallaCaptura(
                 mensaje = estado.mensaje,
                 avisoIdentidad = estado.avisoIdentidad,
                 camara = camara,
-                buscarCodigo = estado.paso == Paso.REVERSO,
                 alDetectarCodigo = viewModel::codigoDetectado,
                 alTomarFoto = { jpeg ->
                     if (jpeg == null) return@Camara
@@ -188,17 +188,22 @@ private fun Camara(
     mensaje: String,
     avisoIdentidad: Boolean,
     camara: CamaraKiosko,
-    buscarCodigo: Boolean,
     alDetectarCodigo: (CodigoLeido) -> Unit,
     alTomarFoto: (ByteArray?) -> Unit
 ) {
+    // El factory de AndroidView corre UNA sola vez, y los pasos FRENTE y REVERSO
+    // comparten este mismo composable: cualquier lambda que se capture ahí se
+    // queda congelada en la primera composición y nunca ve los cambios de
+    // estado. Aquí eso ya costó un error — el escáner quedaba desactivado para
+    // siempre porque capturó el estado de FRENTE. rememberUpdatedState mantiene
+    // una referencia viva a la última versión.
+    val detectar by rememberUpdatedState(alDetectarCodigo)
+
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { contexto ->
                 PreviewView(contexto).also { vista ->
-                    camara.iniciar(vista) { codigo ->
-                        if (buscarCodigo) alDetectarCodigo(codigo)
-                    }
+                    camara.iniciar(vista) { codigo -> detectar(codigo) }
                 }
             },
             modifier = Modifier.fillMaxSize()

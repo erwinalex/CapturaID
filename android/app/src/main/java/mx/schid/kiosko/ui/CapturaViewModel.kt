@@ -3,20 +3,18 @@ package mx.schid.kiosko.ui
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import mx.schid.kiosko.config.ConfiguracionKiosko
+import mx.schid.kiosko.config.AjustesServidor
 import mx.schid.kiosko.datos.DocumentoCapturado
 import mx.schid.kiosko.datos.LectorDocumentos
 import mx.schid.kiosko.datos.OrigenDatos
 import mx.schid.kiosko.datos.ResultadoLectura
 import mx.schid.kiosko.datos.TipoDocumento
 import mx.schid.kiosko.red.ResultadoEnvio
-import mx.schid.kiosko.red.SchIdApi
+import mx.schid.kiosko.red.EnviadorRegistro
 import java.util.Calendar
 
 enum class Paso {
@@ -82,7 +80,8 @@ data class EstadoCaptura(
  * envío, y por eso ningún mensaje de la interfaz incluye datos del huésped.
  */
 class CapturaViewModel(
-    private val configuracion: ConfiguracionKiosko,
+    private val ajustes: AjustesServidor,
+    private val enviador: EnviadorRegistro,
     private val lector: LectorDocumentos = LectorDocumentos()
 ) : ViewModel() {
 
@@ -97,13 +96,9 @@ class CapturaViewModel(
     /** Función que corre OCR; la inyecta la pantalla, que es quien tiene cámara. */
     var reconocerTexto: ((ByteArray, (String?) -> Unit) -> Unit)? = null
 
-    /** True mientras hay que seguir analizando fotogramas en busca de un código. */
-    val buscandoCodigo: Boolean
-        get() = _estado.value.paso == Paso.REVERSO && documento == null
-
     fun comenzar() {
         limpiar()
-        _estado.value = if (!configuracion.estaConfigurado) {
+        _estado.value = if (!ajustes.estaConfigurado) {
             EstadoCaptura(
                 paso = Paso.ERROR,
                 mensaje = "Este kiosko todavía no está configurado. Avisa al personal."
@@ -281,10 +276,7 @@ class CapturaViewModel(
         _estado.value = _estado.value.copy(paso = Paso.ENVIANDO, mensaje = "Enviando...")
 
         viewModelScope.launch {
-            val api = SchIdApi(configuracion.urlBase, configuracion.token)
-            val resultado = withContext(Dispatchers.IO) {
-                api.registrar(datos, frente, reverso)
-            }
+            val resultado = enviador.enviar(datos, frente, reverso)
 
             // Se registra de dónde salieron los datos, nunca los datos mismos.
             // Si la mayoría de las capturas terminan en MANUAL, algo se rompió

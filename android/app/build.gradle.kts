@@ -41,6 +41,15 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        unitTests {
+            // Las clases de android.* son stubs que lanzan excepción en pruebas
+            // unitarias. Sin esto, el Log.i del ViewModel aborta la corrutina de
+            // envío y el flujo nunca llega a su estado final.
+            isReturnDefaultValues = true
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -77,4 +86,5 @@ dependencies {
     implementation(libs.androidx.security.crypto)
 
     testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

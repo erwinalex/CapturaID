@@ -15,7 +15,7 @@ import mx.schid.kiosko.BuildConfig
  * rotarlo es justo lo que hay que poder hacer rápido el día que se extravíe una
  * tableta.
  */
-class ConfiguracionKiosko(context: Context) {
+class ConfiguracionKiosko(context: Context) : AjustesServidor {
 
     private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
         context,
@@ -27,11 +27,11 @@ class ConfiguracionKiosko(context: Context) {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
 
-    var urlBase: String
+    override var urlBase: String
         get() = prefs.getString(CLAVE_URL, "").orEmpty()
         set(valor) = prefs.edit().putString(CLAVE_URL, valor.trim()).apply()
 
-    var token: String
+    override var token: String
         get() = prefs.getString(CLAVE_TOKEN, "").orEmpty()
         set(valor) = prefs.edit().putString(CLAVE_TOKEN, valor.trim()).apply()
 
@@ -43,7 +43,7 @@ class ConfiguracionKiosko(context: Context) {
         get() = prefs.getString(CLAVE_PIN, PIN_INICIAL).orEmpty()
         set(valor) = prefs.edit().putString(CLAVE_PIN, valor).apply()
 
-    val estaConfigurado: Boolean
+    override val estaConfigurado: Boolean
         get() = urlBase.isNotBlank() && token.isNotBlank()
 
     /**

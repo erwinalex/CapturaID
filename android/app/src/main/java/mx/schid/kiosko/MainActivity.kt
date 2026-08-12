@@ -22,6 +22,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import mx.schid.kiosko.config.ConfiguracionKiosko
+import mx.schid.kiosko.red.EnviadorHttp
 import mx.schid.kiosko.ui.CapturaViewModel
 import mx.schid.kiosko.ui.PantallaCaptura
 import mx.schid.kiosko.ui.PantallaConfiguracion
@@ -106,6 +107,6 @@ private class FabricaViewModel(
 
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return CapturaViewModel(configuracion) as T
+        return CapturaViewModel(configuracion, EnviadorHttp(configuracion)) as T
     }
 }
