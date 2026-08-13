@@ -337,6 +337,27 @@ HTTPS: esta máquina no confía en la CA que firmó el certificado
 Pasa al instalar el certificado compartido en una ubicación donde se importó el
 `.pfx` pero se olvidó la CA. Lo arregla `-Instalar`, que hace las dos cosas.
 
+**3. Que el servidor pueda completar un saludo TLS.** Al arrancar, el servicio
+abre una conexión TLS **contra sí mismo**. Es lo que corta la discusión de quién
+tiene la culpa, porque el síntoma se ve idéntico desde los dos lados:
+
+```
+HTTPS: saludo TLS contra sí mismo completado en el puerto 7443. El certificado y su llave privada sirven.
+HTTPS: lo firmó la CA CN=SchId CA Local, huella 3F9C...
+HTTPS: si el kiosko sigue fallando con este servidor en verde, lo que falla es la app.
+```
+
+Si esa línea sale, **el servidor está bien** y lo que falla es el kiosko: casi
+siempre su `schid_ca.crt` no corresponde a esa CA. Compara la huella de arriba
+con la del archivo compilado en el APK:
+
+```powershell
+certutil -dump android\app\src\main\res\raw\schid_ca.crt | findstr /i "hash huella"
+```
+
+Si en cambio dice `NO pudo completar un saludo TLS consigo mismo`, el problema
+está en el servidor y ahí viene la excepción.
+
 ### Si el arranque no reporta nada raro
 
 Entonces el que cortó fue el cliente, y hay que ver el motivo exacto que Kestrel

@@ -135,6 +135,13 @@ var hayHttp = app.Configuration.GetSection("Kestrel:Endpoints:Http").Exists();
 AvisarSobreTransporte(app.Logger, hayHttps, hayHttp);
 DiagnosticoCertificado.Reportar(app.Configuration, app.Logger);
 
+// La autoprueba tiene que correr cuando Kestrel ya está escuchando, no antes.
+if (hayHttps)
+{
+    app.Lifetime.ApplicationStarted.Register(() =>
+        _ = AutoPruebaTls.ReportarAsync(app.Configuration, app.Logger));
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
