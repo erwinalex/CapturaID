@@ -299,28 +299,60 @@ Ojo con la diferencia, porque mandan a revisar lados opuestos:
 | "trust anchor ... not found" | En la app: le falta el `schid_ca.crt` correcto |
 | "connection closed" / "reset" | En el servidor: su certificado no es utilizable |
 
-Para el segundo caso, **el log del servicio al arrancar lo dice**. La API reporta
-qué certificado encontró, su huella, cuándo vence, las direcciones de su SAN y
-—lo importante— si puede leer su llave privada:
+Ninguno de los dos logs dice **quién** cortó el saludo, así que los dos lados se
+señalan mutuamente. Lo que sí lo dice es el log del servicio al arrancar: la API
+reporta qué certificado encontró, su huella, cuándo vence, las direcciones de su
+SAN y las dos cosas que de verdad importan.
 
 ```
 HTTPS: usando el certificado CN=schid-servidor, huella A1B2..., vence 2028-08-13.
-HTTPS: direcciones del certificado (SAN): IP Address=192.168.1.226, DNS Name=schid-servidor
+HTTPS: direcciones del certificado (SAN): DNS Name=schid-servidor
+HTTPS: la llave privada del certificado es utilizable por esta cuenta (SERVICIO).
 ```
 
-Si en su lugar sale este error, esa es la causa:
+**1. Que la llave privada se pueda usar de verdad.** No basta con que el
+certificado la tenga: si vive en el almacén de la máquina y la cuenta que corre
+el servicio no tiene permiso sobre ella, el certificado carga —la parte pública
+siempre se puede leer— y el saludo TLS falla igual. Por eso el arranque **firma
+unos bytes de prueba**, que es lo mismo que hace TLS. Si no puede:
 
 ```
-HTTPS: el certificado NO tiene llave privada accesible para esta cuenta
+HTTPS: el certificado tiene llave privada pero esta cuenta (Erwin) NO puede usarla
 ```
 
-Pasa cuando el certificado vive en el almacén de la máquina y la cuenta que
-corre el servicio no tiene permiso sobre la llave. El certificado carga —la
-parte pública siempre se puede leer— pero el saludo TLS no se completa. Se
-arregla con `certlm.msc`: botón derecho sobre el certificado, *Todas las
-tareas*, *Administrar claves privadas*, y agregar la cuenta. Si el servicio va a
-correr con una cuenta concreta, pásasela al script con `-CuentaServicio` y lo
-hace solo.
+Se arregla con `certlm.msc`: botón derecho sobre el certificado, *Todas las
+tareas*, *Administrar claves privadas*, y agregar la cuenta. Si el servicio corre
+con una cuenta concreta, pásasela al script con `-CuentaServicio` y lo hace solo.
+Si lo levantas en consola, prueba con una consola de administrador.
+
+**2. Que esta máquina confíe en su propia CA.** Kestrel carga con
+`AllowInvalid: false`, así que si la CA no está en el almacén de raíces el
+certificado no es que sea inválido: **no aparece**, y el error habla de un
+certificado ausente, que manda a buscar donde no es.
+
+```
+HTTPS: esta máquina no confía en la CA que firmó el certificado
+```
+
+Pasa al instalar el certificado compartido en una ubicación donde se importó el
+`.pfx` pero se olvidó la CA. Lo arregla `-Instalar`, que hace las dos cosas.
+
+### Si el arranque no reporta nada raro
+
+Entonces el que cortó fue el cliente, y hay que ver el motivo exacto que Kestrel
+sí conoce pero no registra al nivel por omisión. En `appsettings.json`:
+
+```json
+"Microsoft.AspNetCore.Server.Kestrel": "Debug"
+```
+
+Reinicia, reproduce el fallo desde el kiosko y busca "Failed to authenticate
+HTTPS connection": ahí viene la excepción real. No lo dejes en `Debug` en
+operación normal, que llena el log.
+
+Lo más común en ese escenario es que la app y el servidor no tengan la misma CA
+—se regeneró de un lado y no del otro—. Compara la huella de la CA del servidor
+con la del `schid_ca.crt` que se compiló en el APK.
 
 ### Ver qué está pasando en cada conexión
 

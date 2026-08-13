@@ -17,4 +17,9 @@
     <ProjectReference Include="..\SchId.Shared\SchId.Shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Para poder probar los diagnósticos sin exponerlos como API pública. -->
+    <InternalsVisibleTo Include="SchId.Tests" />
+  </ItemGroup>
+
 </Project>
