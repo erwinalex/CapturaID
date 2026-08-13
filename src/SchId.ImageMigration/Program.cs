@@ -159,32 +159,36 @@ return errores == 0 ? 0 : 1;
 static async Task<long?> ExtraerImagenAsync(
     SqlConnection connection, long id, string columna, ImageSide side, string basePath, bool dryRun)
 {
+    // El tamaño va PRIMERO en el SELECT por dos razones. Una, con
+    // SequentialAccess las columnas se leen de izquierda a derecha, así que
+    // ponerlo antes del binario deja que la simulación lo consulte sin traerse
+    // megabytes por la red para tirarlos. Y dos, DATALENGTH devuelve int, no
+    // bigint: sin el CAST, leerlo con GetInt64 revienta con
+    // "Unable to cast object of type 'System.Int32' to type 'System.Int64'".
     await using var cmd = new SqlCommand(
-        $"SELECT {columna}, DATALENGTH({columna}) FROM dbo.Personas WHERE ID = @id", connection);
+        $"SELECT CAST(DATALENGTH({columna}) AS bigint), {columna} FROM dbo.Personas WHERE ID = @id",
+        connection);
     cmd.Parameters.AddWithValue("@id", id);
 
     await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess);
+
+    // DATALENGTH de una columna vacía es NULL, así que esto detecta de una vez
+    // que no hay nada que extraer.
     if (!await reader.ReadAsync() || await reader.IsDBNullAsync(0))
     {
         return null;
     }
 
+    var tamano = reader.GetInt64(0);
     var path = ImagePathHelper.GetFullPath(basePath, id, side);
 
     if (dryRun)
     {
-        // Se lee el tamaño en la misma consulta y en el mismo orden en que se
-        // leería el binario: con SequentialAccess las columnas hay que leerlas
-        // de izquierda a derecha, así que el binario se salta consumiéndolo.
-        await using var descartar = reader.GetStream(0);
-        await descartar.CopyToAsync(Stream.Null);
-        var tamano = await reader.IsDBNullAsync(1) ? 0L : reader.GetInt64(1);
-
         Console.WriteLine($"  [simulación] Se escribiría: {path} ({tamano} bytes)");
         return tamano;
     }
 
-    await using (var stream = reader.GetStream(0))
+    await using (var stream = reader.GetStream(1))
     await using (var file = File.Create(path))
     {
         await stream.CopyToAsync(file);

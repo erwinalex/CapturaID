@@ -29,7 +29,15 @@ public class Persona
     public long? IdAWSInt { get; set; }
     public int? AutorizoFaceID { get; set; }
 
-    /// <summary>Numeric(18,1) tipo TDateTime de Delphi. Usar DelphiDateTime para convertir.</summary>
+    /// <summary>
+    /// Numeric(18,1) tipo TDateTime de Delphi. Usar DelphiDateTime para convertir.
+    ///
+    /// OJO con el único decimal: en TDateTime la parte fraccionaria es la
+    /// fracción del día, así que una décima son 2.4 horas. La hora que se
+    /// guarde aquí queda redondeada a ese bloque — comprobado leyendo de vuelta
+    /// un alta contra SQL Server. Para fechas sirve; para horas, no. Es como
+    /// está definida la columna en el esquema original y no se toca.
+    /// </summary>
     public decimal? FechaAlta { get; set; }
 
     /// <summary>Numeric(18,10) tipo TDateTime de Delphi. Usar DelphiDateTime para convertir.</summary>

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpsPolicy;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
+using System.Text.Json.Serialization;
 using SchId.Api.Data;
 using SchId.Api.Security;
 using SchId.Api.Services;
@@ -14,7 +15,15 @@ var builder = WebApplication.CreateBuilder(args);
 // `dotnet run`. No requiere cambios entre ambos modos.
 builder.Host.UseWindowsService();
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // Los enums viajan como texto ("Creado") y no como número (0). El
+        // número obliga al cliente a conocer el orden de declaración, así que
+        // reordenar el enum —algo que se ve inofensivo— cambiaría en silencio
+        // el significado de lo que ya está publicado.
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {

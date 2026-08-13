@@ -213,6 +213,25 @@ public class RegistroEndpointTests : IClassFixture<ApiFactory>
             $"FechaAlta quedó en {fechaAlta}, que no corresponde a la fecha actual.");
     }
 
+    /// <summary>
+    /// El resultado viaja como texto ("Creado") y no como número. Se comprueba
+    /// sobre el JSON crudo a propósito: el deserializador de las otras pruebas
+    /// acepta las dos formas, así que dejó pasar durante un tiempo que la API
+    /// mandara el número — el cliente Android lee un string y el README
+    /// documenta un string.
+    /// </summary>
+    [Fact]
+    public async Task El_resultado_viaja_como_texto_no_como_numero()
+    {
+        var respuesta = await _api.ClienteCon(ApiFactory.TokenKiosko)
+            .PostAsync("/api/personas/registro", Formulario("TEXT900101HDFRPN01", nombre: "RITA SOSA"));
+
+        var cuerpo = await respuesta.Content.ReadAsStringAsync();
+
+        Assert.Contains("\"resultado\":\"Creado\"", cuerpo);
+        Assert.DoesNotContain("\"resultado\":0", cuerpo);
+    }
+
     // ---------- Estancias: ya no son asunto de esta API ----------
 
     /// <summary>
