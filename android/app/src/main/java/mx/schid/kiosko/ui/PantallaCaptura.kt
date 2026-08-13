@@ -88,6 +88,7 @@ fun PantallaCaptura(
                 mensaje = estado.mensaje,
                 avisoIdentidad = estado.avisoIdentidad,
                 camara = camara,
+                esReverso = estado.paso == Paso.REVERSO,
                 alDetectarCodigo = viewModel::codigoDetectado,
                 alTomarFoto = { jpeg ->
                     if (jpeg == null) return@Camara
@@ -218,9 +219,17 @@ private fun Camara(
     mensaje: String,
     avisoIdentidad: Boolean,
     camara: CamaraKiosko,
+    esReverso: Boolean,
     alDetectarCodigo: (CodigoLeido) -> Unit,
     alTomarFoto: (ByteArray?) -> Unit
 ) {
+    // Cambiar de paso sin cambiar nada visible obliga a leer el texto para saber
+    // en cuál se está. El reverso se tiñe de otro color para que se note de
+    // reojo, y se acompaña de un contador porque el color solo no basta: quien
+    // no distinga bien los tonos se quedaría igual que antes.
+    val tono = if (esReverso) TONO_REVERSO else TONO_FRENTE
+    val paso = if (esReverso) "Paso 2 de 2" else "Paso 1 de 2"
+
     // El factory de AndroidView corre una sola vez, así que enganchar la cámara
     // ahí dejaba congelado lo que se capturara. Se hace en `update`, que corre
     // en cada recomposición: conectar es idempotente y barata después de la
@@ -244,7 +253,7 @@ private fun Camara(
                 modifier = Modifier.fillMaxSize()
             )
 
-            GuiaCredencial(modifier = Modifier.fillMaxSize())
+            GuiaCredencial(tono = tono, modifier = Modifier.fillMaxSize())
         }
 
         Column(
@@ -255,6 +264,13 @@ private fun Camara(
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Text(
+                paso,
+                style = MaterialTheme.typography.labelLarge,
+                color = tono.acento,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+
             Text(
                 "Acomódalo dentro del recuadro: solo se guarda lo que quede dentro.",
                 style = MaterialTheme.typography.bodyMedium,
@@ -326,8 +342,20 @@ private fun Mensaje(
  * La geometría sale de [RecorteCredencial], el mismo cálculo que aplica el
  * recorte a la foto. No hay dos números que mantener de acuerdo.
  */
+/**
+ * Los dos tonos de la pantalla de captura. Lo que distingue un paso del otro,
+ * además del texto.
+ */
+private data class TonoCaptura(val velo: Color, val acento: Color)
+
+/** Frente: neutro, sin teñir. */
+private val TONO_FRENTE = TonoCaptura(velo = Color(0xB3000000), acento = Color.White)
+
+/** Reverso: un azul apagado, suficiente para notarse sin estorbar a la cámara. */
+private val TONO_REVERSO = TonoCaptura(velo = Color(0xB30D2438), acento = Color(0xFF7FC4FF))
+
 @Composable
-private fun GuiaCredencial(modifier: Modifier = Modifier) {
+private fun GuiaCredencial(tono: TonoCaptura, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier) {
         val region = RecorteCredencial.calcular(size.width.toInt(), size.height.toInt())
         val esquina = size.width * 0.03f
@@ -346,12 +374,12 @@ private fun GuiaCredencial(modifier: Modifier = Modifier) {
 
         // Todo lo de fuera se oscurece; el hueco queda limpio.
         clipPath(hueco, clipOp = ClipOp.Difference) {
-            drawRect(color = Color(0xB3000000))
+            drawRect(color = tono.velo)
         }
 
         drawPath(
             path = hueco,
-            color = Color.White,
+            color = tono.acento,
             style = Stroke(width = 3.dp.toPx())
         )
     }
