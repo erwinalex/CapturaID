@@ -28,6 +28,11 @@
     Se distinguen solos: lo que parezca IP se registra como IPAddress y el resto
     como DNS. Incluye TODAS las que se vayan a usar.
 
+.PARAMETER Instalar
+    Instala en ESTE servidor el certificado compartido que se generó en otra
+    parte. No crea nada: importa la CA y el .pfx. Es lo que se corre en las
+    otras 69 ubicaciones.
+
 .PARAMETER CarpetaSalida
     Dónde dejar el certificado de la CA que se copia al proyecto Android.
 
@@ -39,6 +44,11 @@
     # Un solo certificado para todas las ubicaciones. Se corre UNA vez, y el
     # .pfx que exporta se instala igual en los 70 servidores.
     .\New-SchIdCertificado.ps1 -Compartido
+
+.EXAMPLE
+    # En cada una de las demás ubicaciones, con los dos archivos que dejó el
+    # modo compartido.
+    .\New-SchIdCertificado.ps1 -Instalar -ArchivoPfx C:\SchId\schid_servidor.pfx -ArchivoCa C:\SchId\schid_ca.crt
 
 .EXAMPLE
     # Un certificado atado a las direcciones de UNA ubicación. Todas van en la
@@ -86,6 +96,26 @@ param(
     [Parameter(Mandatory = $true, ParameterSetName = "PorUbicacion", Position = 0)]
     [string[]]$Direcciones,
 
+    <#
+        Modo instalación: pone en ESTE servidor el certificado compartido que ya
+        se generó en otra parte. No crea CA ni certificado.
+
+        Importa dos cosas, y las dos hacen falta:
+
+        - El .pfx en Cert:\LocalMachine\My, que es de donde Kestrel lo lee.
+        - La CA en Cert:\LocalMachine\Root. Sin esto la cadena del certificado
+          no es de confianza para esta máquina, y con AllowInvalid=false
+          Kestrel ni siquiera lo encuentra al buscarlo por nombre.
+    #>
+    [Parameter(Mandatory = $true, ParameterSetName = "Instalar")]
+    [switch]$Instalar,
+
+    [Parameter(Mandatory = $true, ParameterSetName = "Instalar")]
+    [string]$ArchivoPfx,
+
+    [Parameter(Mandatory = $true, ParameterSetName = "Instalar")]
+    [string]$ArchivoCa,
+
     [string]$CarpetaSalida = "C:\SchId\certificados",
 
     [string]$NombreServidor = "schid-servidor",
@@ -104,6 +134,63 @@ $esAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIde
 
 if (-not $esAdmin) {
     throw "Este script tiene que correrse como administrador: escribe en el almacén de certificados de la máquina."
+}
+
+# ---------------------------------------------------------------------------
+# Modo instalación: no se genera nada, se instala lo que ya se generó.
+# ---------------------------------------------------------------------------
+if ($Instalar) {
+    foreach ($archivo in @($ArchivoPfx, $ArchivoCa)) {
+        if (-not (Test-Path $archivo)) {
+            throw "No se encuentra el archivo: $archivo"
+        }
+    }
+
+    # La CA primero: mientras no sea de confianza para esta máquina, la cadena
+    # del certificado del servidor está incompleta y Kestrel lo descarta.
+    $ca = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($ArchivoCa)
+    $yaEnRaiz = Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Thumbprint -eq $ca.Thumbprint }
+
+    if ($yaEnRaiz) {
+        Write-Host "La CA ya estaba instalada como raíz de confianza." -ForegroundColor Yellow
+    }
+    else {
+        $almacenRaiz = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "LocalMachine")
+        $almacenRaiz.Open("ReadWrite")
+        $almacenRaiz.Add($ca)
+        $almacenRaiz.Close()
+        Write-Host "CA instalada como raíz de confianza (vence $($ca.NotAfter.ToString('yyyy-MM-dd')))." -ForegroundColor Green
+    }
+
+    # Se retira el certificado de servidor anterior por la misma razón que al
+    # generarlo: Kestrel lo busca por nombre y no debe haber dos.
+    Get-ChildItem Cert:\LocalMachine\My |
+        Where-Object { $_.Subject -eq "CN=$NombreServidor" } |
+        ForEach-Object {
+            Write-Host "  Quitando el certificado anterior $($_.Thumbprint)." -ForegroundColor DarkGray
+            Remove-Item -Path "Cert:\LocalMachine\My\$($_.Thumbprint)" -Force
+        }
+
+    $clave = Read-Host "Contraseña del .pfx" -AsSecureString
+    $certServidor = Import-PfxCertificate `
+        -FilePath $ArchivoPfx `
+        -CertStoreLocation Cert:\LocalMachine\My `
+        -Password $clave
+
+    Write-Host ""
+    Write-Host "Certificado instalado. Huella: $($certServidor.Thumbprint)" -ForegroundColor Green
+    Write-Host "Vence el $($certServidor.NotAfter.ToString('yyyy-MM-dd'))." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Falta en esta ubicación:" -ForegroundColor Cyan
+    Write-Host "  1) La sección Kestrel de appsettings.json (es idéntica en todas)."
+    Write-Host "  2) El puerto en el firewall:"
+    Write-Host '     New-NetFirewallRule -DisplayName "SchId API (HTTPS)" -Direction Inbound -Protocol TCP -LocalPort 7443 -Action Allow' -ForegroundColor White
+    Write-Host "  3) Reiniciar el servicio:  Restart-Service SchIdApi"
+    Write-Host "  4) En el kiosko, capturar la IP de ESTE servidor en Ajustes."
+    Write-Host ""
+    Write-Host "Borra el .pfx de esta máquina: lleva la llave privada del servidor." -ForegroundColor Yellow
+
+    return
 }
 
 New-Item -ItemType Directory -Force -Path $CarpetaSalida | Out-Null
@@ -302,9 +389,15 @@ Write-Host "4) Reinicia el servicio:  Restart-Service SchIdApi"
 Write-Host ""
 if ($Compartido) {
     Write-Host ""
-    Write-Host "En cada uno de los demás servidores:" -ForegroundColor Cyan
-    Write-Host "  Import-PfxCertificate -FilePath schid_servidor.pfx ``" -ForegroundColor White
-    Write-Host "    -CertStoreLocation Cert:\LocalMachine\My -Password (Read-Host -AsSecureString)" -ForegroundColor White
+    Write-Host "En cada uno de los DEMÁS servidores, copia estos dos archivos" -ForegroundColor Cyan
+    Write-Host "junto con el script y corre:" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  .\New-SchIdCertificado.ps1 -Instalar ``" -ForegroundColor White
+    Write-Host "    -ArchivoPfx .\schid_servidor.pfx -ArchivoCa .\schid_ca.crt" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Hacen falta los dos: el .pfx es el certificado, y sin la CA en el" -ForegroundColor Cyan
+    Write-Host "almacén de raíces esa máquina no confía en su propia cadena y Kestrel" -ForegroundColor Cyan
+    Write-Host "no llega a cargarlo." -ForegroundColor Cyan
     Write-Host ""
     Write-Host "El .pfx lleva la llave privada del servidor: trátalo como una contraseña." -ForegroundColor Yellow
     Write-Host "Cuando termines de instalarlo en las ubicaciones, bórralo de donde lo" -ForegroundColor Yellow

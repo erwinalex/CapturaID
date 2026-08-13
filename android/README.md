@@ -302,8 +302,9 @@ existe. Ver `config/DireccionServidor.kt`.
 
    Produce `schid_ca.crt` (la CA, pública) y `schid_servidor.pfx` (el
    certificado del servidor **con su llave privada**, protegido con la
-   contraseña que te pida). El `.pfx` se instala en el servidor de cada
-   ubicación con `Import-PfxCertificate`; el script imprime la línea exacta.
+   contraseña que te pida). En cada una de las demás ubicaciones se copian los
+   dos archivos junto con el script y se corre
+   `.\New-SchIdCertificado.ps1 -Instalar -ArchivoPfx ... -ArchivoCa ...`.
 
    > El `.pfx` es la llave del servicio: trátalo como una contraseña y borra las
    > copias en cuanto lo hayas instalado.

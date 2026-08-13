@@ -165,8 +165,21 @@ hace una vez.
 
 El certificado lleva en el SAN **únicamente el nombre `schid-servidor`**, sin
 ninguna IP, y se exporta como `schid_servidor.pfx` protegido con la contraseña
-que el script pida. Ese mismo `.pfx` se instala tal cual en los 70 servidores;
-el script imprime la línea de `Import-PfxCertificate`.
+que el script pida.
+
+En **cada una de las demás ubicaciones** se copian el `.pfx`, el `schid_ca.crt`
+y el propio script, y se corre:
+
+```powershell
+.\New-SchIdCertificado.ps1 -Instalar -ArchivoPfx .\schid_servidor.pfx -ArchivoCa .\schid_ca.crt
+```
+
+Ese modo no genera nada: importa el certificado al almacén de la máquina y **la
+CA al almacén de raíces de confianza**. Los dos pasos hacen falta — sin la CA en
+las raíces, esa máquina no confía en su propia cadena y Kestrel, que carga con
+`AllowInvalid: false`, ni siquiera encuentra el certificado al buscarlo por
+nombre. El error que verías sería "no hay certificado", no "certificado
+inválido", que es de los que cuestan una tarde.
 
 Funciona porque la app **nunca conecta por IP**: pide siempre
 `https://schid-servidor:puerto` y resuelve ese nombre por su cuenta hacia la IP
