@@ -10,3 +10,9 @@ local.properties
 *.jks
 *.keystore
 keystore.properties
+
+# El certificado de la CA lo pone cada quien: se ignora para no tener que
+# recuperarlo en cada actualización del repositorio, y para que nadie suba por
+# accidente el de su organización. Gradle copia el marcador de
+# certificado/schid_ca_marcador.crt cuando falta. Ver certificado/LEEME.md.
+app/src/main/res/raw/schid_ca.crt

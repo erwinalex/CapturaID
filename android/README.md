@@ -309,11 +309,17 @@ existe. Ver `config/DireccionServidor.kt`.
    > El `.pfx` es la llave del servicio: trátalo como una contraseña y borra las
    > copias en cuanto lo hayas instalado.
 
-   Copia el `schid_ca.crt` sobre `app/src/main/res/raw/schid_ca.crt`,
-   reemplazando el marcador que trae el repositorio, y recompila. El archivo
-   versionado es un **marcador de posición** que existe nada más para que el
-   proyecto compile; si se te olvida reemplazarlo, la app no conecta y falla con
-   error de certificado — que es la forma correcta de fallar.
+   Copia el `schid_ca.crt` sobre `app/src/main/res/raw/schid_ca.crt` y
+   recompila. **Ese archivo no está en el control de versiones**, así que se
+   queda en su sitio entre actualizaciones: no hay que volver a copiarlo cada
+   vez que se baja código.
+
+   Cuando falta —en un clon recién bajado—, Gradle copia el marcador de
+   posición de `certificado/` para que el proyecto enlace, y avisa en la
+   consola. Con el marcador la app no conecta y falla con error de certificado,
+   que es la forma correcta de fallar; y `assembleRelease` directamente se
+   niega a compilar, porque un APK de kiosko así no sirve para nada. Ver
+   `certificado/LEEME.md`.
 
    `res/xml/network_security_config.xml` **ya no se toca por ubicación**: el
    nombre `schid-servidor` es el mismo en todas.

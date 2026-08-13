@@ -4,6 +4,64 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// ---------------------------------------------------------------------------
+// El certificado de la CA
+//
+// app/src/main/res/raw/schid_ca.crt NO está en el control de versiones: es un
+// archivo que cada quien reemplaza con el certificado de su propia CA, y
+// tenerlo versionado obligaba a volver a copiarlo en cada actualización del
+// repositorio.
+//
+// Como el recurso se referencia desde network_security_config.xml, sin el
+// archivo el proyecto ni siquiera enlaza. Por eso, si no existe, se copia el
+// marcador de posición: un clon recién bajado compila sin pasos previos.
+//
+// Ver android/certificado/LEEME.md.
+// ---------------------------------------------------------------------------
+val certificadoCa = layout.projectDirectory.file("src/main/res/raw/schid_ca.crt").asFile
+val certificadoMarcador = rootProject.layout.projectDirectory.file("certificado/schid_ca_marcador.crt").asFile
+
+fun usaMarcador(): Boolean =
+    certificadoCa.exists() && certificadoCa.readBytes().contentEquals(certificadoMarcador.readBytes())
+
+val prepararCertificadoCa by tasks.registering {
+    description = "Copia el marcador de posición de la CA si no hay un certificado real."
+    outputs.file(certificadoCa)
+
+    doLast {
+        if (!certificadoCa.exists()) {
+            certificadoCa.parentFile.mkdirs()
+            certificadoMarcador.copyTo(certificadoCa)
+        }
+        if (usaMarcador()) {
+            logger.warn(
+                "SchId: se está compilando con el MARCADOR de la CA, no con un " +
+                    "certificado real. La app no podrá conectar por https. " +
+                    "Ver android/certificado/LEEME.md."
+            )
+        }
+    }
+}
+
+/**
+ * Un APK de release con el marcador dentro no puede hablar con ningún servidor.
+ * Más vale enterarse aquí que en la ubicación, con la tableta ya montada.
+ */
+val exigirCertificadoReal by tasks.registering {
+    description = "Falla si se intenta compilar un release con el marcador de la CA."
+    dependsOn(prepararCertificadoCa)
+
+    doLast {
+        if (usaMarcador()) {
+            throw GradleException(
+                "No se puede compilar release con el marcador de posición de la CA.\n" +
+                    "Copia tu schid_ca.crt sobre app/src/main/res/raw/schid_ca.crt.\n" +
+                    "Ver android/certificado/LEEME.md."
+            )
+        }
+    }
+}
+
 android {
     namespace = "mx.schid.kiosko"
     compileSdk = 35
@@ -56,6 +114,12 @@ android {
         }
     }
 }
+
+// El certificado tiene que estar en su lugar antes de que se empaqueten los
+// recursos, y la exigencia del release antes de que se genere el APK.
+tasks.named("preBuild") { dependsOn(prepararCertificadoCa) }
+tasks.matching { it.name == "assembleRelease" || it.name == "bundleRelease" }
+    .configureEach { dependsOn(exigirCertificadoReal) }
 
 dependencies {
     implementation(libs.androidx.core.ktx)

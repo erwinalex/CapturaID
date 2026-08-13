@@ -273,7 +273,9 @@ Restart-Service SchIdApi
 ### 3. Confiar en la CA desde el kiosko
 
 Copia `schid_ca.crt` (lo deja el script en `C:\SchId\certificados`) al proyecto
-Android en `app/src/main/res/raw/schid_ca.crt` y recompila. El
+Android en `app/src/main/res/raw/schid_ca.crt` y recompila. Ese archivo **no
+está versionado** a propósito, para no tener que reponerlo en cada actualización
+del repositorio; ver `android/certificado/LEEME.md`. El
 `network_security_config.xml` de la app ya viene con la CA declarada y explica
 por qué confía **solo** en la nuestra para el nombre del servidor —para que
 ninguna CA pública comprometida pueda meterse en medio— mientras conserva las
