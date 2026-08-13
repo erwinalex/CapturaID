@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import mx.schid.kiosko.R
+import mx.schid.kiosko.config.CaIncrustada
 import mx.schid.kiosko.datos.Curp
 import mx.schid.kiosko.datos.Mrz
 
@@ -55,6 +57,11 @@ fun PantallaDiagnostico(alSalir: () -> Unit) {
     val contexto = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val portapapeles = LocalClipboardManager.current
+
+    // La CA no cambia mientras la app viva: se lee una vez.
+    val ca = remember {
+        contexto.resources.openRawResource(R.raw.schid_ca).use { CaIncrustada.leer(it) }
+    }
 
     // Con todos los formatos: en el reverso de la INE hay códigos grandes que no
     // son ni QR ni PDF417, y sin esto el escáner ni los mira.
@@ -124,6 +131,35 @@ fun PantallaDiagnostico(alSalir: () -> Unit) {
                 .padding(top = 16.dp)
                 .verticalScroll(rememberScrollState())
         ) {
+            Seccion("CA compilada en la app") {
+                if (ca == null) {
+                    Text(
+                        "No se pudo leer el certificado de la CA del APK. " +
+                            "El archivo res/raw/schid_ca.crt no es un certificado válido."
+                    )
+                } else {
+                    if (ca.esMarcador) {
+                        Text(
+                            "Esta app se compiló con el MARCADOR de posición, no con una CA " +
+                                "real. No va a poder conectar con ningún servidor. Copia tu " +
+                                "schid_ca.crt sobre app/src/main/res/raw/ y recompila.",
+                            color = Color(0xFFFF6B6B)
+                        )
+                    }
+                    if (ca.vencido) {
+                        Text("La CA compilada está VENCIDA.", color = Color(0xFFFF6B6B))
+                    }
+                    Text("Sujeto: ${ca.sujeto}")
+                    Text("Vigencia: ${ca.valeDesde} a ${ca.valeHasta}")
+                    Text("Huella SHA-1 (el 'Thumbprint' de Windows):")
+                    Crudo(ca.huellaSha1)
+                    Text(
+                        "Tiene que ser idéntica a la de la CA del servidor. En PowerShell: " +
+                            "(Get-PfxCertificate C:\\SchId\\certificados\\schid_ca.crt).Thumbprint"
+                    )
+                }
+            }
+
             Seccion("Códigos de barras (${codigos.size})") {
                 if (codigos.isEmpty()) {
                     Text("Todavía no se ha leído ningún código. Mueve el documento despacio.")
@@ -153,6 +189,18 @@ fun PantallaDiagnostico(alSalir: () -> Unit) {
         Button(
             onClick = {
                 val informe = buildString {
+                    appendLine("=== CA COMPILADA EN LA APP ===")
+                    if (ca == null) {
+                        appendLine("(no se pudo leer)")
+                    } else {
+                        appendLine("Sujeto: ${ca.sujeto}")
+                        appendLine("Vigencia: ${ca.valeDesde} a ${ca.valeHasta}")
+                        appendLine("SHA-1:   ${ca.huellaSha1}")
+                        appendLine("SHA-256: ${ca.huellaSha256}")
+                        if (ca.esMarcador) appendLine("¡ES EL MARCADOR DE POSICIÓN!")
+                        if (ca.vencido) appendLine("¡VENCIDA!")
+                    }
+                    appendLine()
                     appendLine("=== CÓDIGOS DE BARRAS (${codigos.size}) ===")
                     if (codigos.isEmpty()) {
                         appendLine("(ninguno)")
