@@ -40,8 +40,6 @@ fijo, y la respuesta al kiosko no incluye ningún dato personal.
   servidor para HTTPS en la red local.
 - `android/` — la app del kiosko (Kotlin + Compose + CameraX + ML Kit). Tiene su
   propio README con el detalle de instalación y las decisiones de privacidad.
-- `docs/android/` — la configuración de seguridad de red, de donde la copia el
-  proyecto Android.
 
 ## Endpoints
 
@@ -146,12 +144,18 @@ instalar y diagnosticar— pero lo deja dicho en el log con un warning.
 
 ### 1. Generar los certificados
 
-En la PC del servidor, en una ventana de PowerShell **como administrador**:
+Hay dos modos. Para un despliegue de decenas de ubicaciones, el que sirve es el
+**compartido**.
+
+#### Modo compartido: un certificado para las 70 ubicaciones (recomendado)
+
+Se corre **una sola vez**, en cualquier PC con Windows, en PowerShell **como
+administrador**:
 
 ```powershell
 cd scripts
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\New-SchIdCertificado.ps1 -Direcciones 192.168.1.226,192.168.1.250,schid-servidor
+.\New-SchIdCertificado.ps1 -Compartido
 ```
 
 Windows viene con la ejecución de scripts deshabilitada, de ahí el
@@ -159,14 +163,43 @@ Windows viene con la ejecución de scripts deshabilitada, de ahí el
 ventana, así que no deja la máquina permanentemente más abierta por algo que se
 hace una vez.
 
-Pon en `-Direcciones` **todas** las formas en que los kioskos van a alcanzar al
-servidor, en una sola lista separada por comas. Si alguna se queda suelta fuera
-de la lista, el script rechaza el comando en lugar de generar en silencio un
-certificado incompleto. Eso es lo que acaba en el SAN del certificado, y **Android valida el
-SAN e ignora el CN**: si el kiosko apunta a `https://192.168.1.50` y esa IP no
-está ahí, la conexión falla aunque el certificado sea perfectamente válido. Las
-IPs y los nombres DNS van en campos distintos del SAN; el script los separa
-solo, pero una IP no sirve si quedó registrada como nombre.
+El certificado lleva en el SAN **únicamente el nombre `schid-servidor`**, sin
+ninguna IP, y se exporta como `schid_servidor.pfx` protegido con la contraseña
+que el script pida. Ese mismo `.pfx` se instala tal cual en los 70 servidores;
+el script imprime la línea de `Import-PfxCertificate`.
+
+Funciona porque la app **nunca conecta por IP**: pide siempre
+`https://schid-servidor:puerto` y resuelve ese nombre por su cuenta hacia la IP
+que tenga configurada el kiosko. De ahí salen las tres cosas que hacían falta:
+
+- Un certificado sirve para todas las ubicaciones.
+- Una sola compilación del APK sirve para todos los kioskos.
+- Donde el router reparte IP dinámica, un cambio de dirección se arregla en los
+  ajustes del kiosko — sin regenerar certificados ni recompilar.
+
+> El `.pfx` lleva la llave privada del servidor. Trátalo como una contraseña:
+> pásalo por un medio seguro y borra las copias en cuanto esté instalado.
+
+#### Modo por ubicación
+
+Sigue disponible para una instalación suelta donde el servidor tiene IP fija y
+no interesa distribuir un `.pfx`:
+
+```powershell
+.\New-SchIdCertificado.ps1 -Direcciones 192.168.1.226,192.168.1.250,schid-servidor
+```
+
+Aquí el certificado se queda en el almacén de Windows de esa máquina y no se
+exporta. Pon en `-Direcciones` **todas** las formas en que los kioskos van a
+alcanzar al servidor, en una sola lista separada por comas. Si alguna se queda
+suelta fuera de la lista, el script rechaza el comando en lugar de generar en
+silencio un certificado incompleto. Eso es lo que acaba en el SAN, y **Android
+valida el SAN e ignora el CN**: si el kiosko apunta a `https://192.168.1.50` y
+esa IP no está ahí, la conexión falla aunque el certificado sea perfectamente
+válido. Las IPs y los nombres DNS van en campos distintos del SAN; el script los
+separa solo, pero una IP no sirve si quedó registrada como nombre.
+
+#### En los dos modos
 
 El script crea **una CA propia y, firmado por ella, el certificado del
 servidor**. Suena a rodeo frente a un autofirmado suelto, pero es lo que hace
@@ -201,9 +234,14 @@ El script imprime el bloque exacto para `src/SchId.Api/appsettings.json`:
 ```
 
 El certificado se lee del almacén de Windows por su nombre, no de un archivo
-`.pfx`. Así no hay contraseña de certificado que proteger, por la misma razón
-que la cadena de conexión usa autenticación integrada en vez de una contraseña
-de base de datos.
+`.pfx` en disco. Así no queda una contraseña de certificado guardada en la
+configuración, por la misma razón que la cadena de conexión usa autenticación
+integrada en vez de una contraseña de base de datos. En modo compartido el
+`.pfx` es solo el vehículo para llevar el certificado a cada servidor:
+`Import-PfxCertificate` lo mete al almacén y a partir de ahí sobra — bórralo.
+
+El bloque es **idéntico en las 70 ubicaciones**: el nombre del certificado es el
+mismo en todas.
 
 **Quita la sección `Http` cuando los kioskos ya estén en HTTPS.** Mientras siga
 ahí, un kiosko mal configurado puede seguir mandando su token en claro sin que
@@ -222,14 +260,16 @@ Restart-Service SchIdApi
 ### 3. Confiar en la CA desde el kiosko
 
 Copia `schid_ca.crt` (lo deja el script en `C:\SchId\certificados`) al proyecto
-Android en `app/src/main/res/raw/schid_ca.crt`, y usa el
-`network_security_config.xml` que está en `docs/android/`. Ahí queda explicado
-por qué la app confía **solo** en nuestra CA para el dominio del servidor —para
-que ninguna CA pública comprometida pueda meterse en medio— mientras conserva
-las CAs del sistema para todo lo demás.
+Android en `app/src/main/res/raw/schid_ca.crt` y recompila. El
+`network_security_config.xml` de la app ya viene con la CA declarada y explica
+por qué confía **solo** en la nuestra para el nombre del servidor —para que
+ninguna CA pública comprometida pueda meterse en medio— mientras conserva las
+CAs del sistema para todo lo demás.
 
-Con esa configuración no hace falta instalar nada a mano en el dispositivo ni
-pedir permisos de administrador en la tableta.
+No hace falta instalar nada a mano en el dispositivo ni pedir permisos de
+administrador en la tableta, y **ese archivo no se edita por ubicación**: el
+nombre `schid-servidor` es el mismo en todas, y lo que cambia de una a otra —la
+IP— se captura en los ajustes del kiosko. Ver `android/README.md`.
 
 ### Si el kiosko dice que el servidor cerró la conexión
 

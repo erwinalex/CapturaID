@@ -266,26 +266,62 @@ cd android
 `local.properties` con `sdk.dir=` apuntando a tu SDK no se versiona; Android
 Studio lo genera solo al abrir el proyecto.
 
+## Un certificado y un APK para las 70 ubicaciones
+
+Un certificado TLS vale para los nombres y las IPs que lleva en su SAN, y
+Android exige que la dirección con la que conectas esté ahí. Atar el
+certificado a la IP significaría **un certificado distinto por ubicación** —y,
+donde el router reparte IP dinámica, un certificado que deja de servir el día
+que la dirección cambia.
+
+La salida es **no conectar nunca por IP**. La app pide siempre
+`https://schid-servidor:puerto` y resuelve ese nombre por su cuenta hacia la IP
+que se capturó en los ajustes del kiosko, con un `Dns` propio de OkHttp
+(`ResolutorFijo`, en `red/SchIdApi.kt`). Para TLS el nombre es el mismo en todas
+partes, así que:
+
+- **Un solo certificado** se genera una vez y se instala igual en los 70
+  servidores.
+- **Una sola compilación** de la app sirve para todos los kioskos.
+- Cuando una IP cambia, se corrige en *Ajustes* del kiosko. No se toca el
+  certificado ni se recompila nada.
+
+La validación del certificado **no se afloja**: se sigue exigiendo que lo firme
+nuestra CA y que el nombre coincida. Lo único que se sustituye es el paso de
+resolución de nombres, que es justo lo que en una red local sin DNS propio no
+existe. Ver `config/DireccionServidor.kt`.
+
 ## Instalar un kiosko
 
-1. **Certificado.** Copia el `schid_ca.crt` que generó
-   `scripts/New-SchIdCertificado.ps1` sobre
-   `app/src/main/res/raw/schid_ca.crt`, reemplazando el marcador que trae el
-   repositorio, y recompila.
+1. **Certificado.** Genera el par CA + servidor **una sola vez** para toda la
+   organización:
 
-   El archivo versionado es un **marcador de posición** que existe nada más para
-   que el proyecto compile. Si se te olvida reemplazarlo, la app no conecta y
-   falla con error de certificado — que es la forma correcta de fallar.
+   ```powershell
+   .\scripts\New-SchIdCertificado.ps1 -Compartido
+   ```
 
-2. **Dominio.** En `res/xml/network_security_config.xml`, cambia
-   `schid-servidor` por la IP o el nombre real del servidor. Tiene que coincidir
-   **exactamente** con lo que quedó en el SAN del certificado y con la URL que se
-   configure en la app.
+   Produce `schid_ca.crt` (la CA, pública) y `schid_servidor.pfx` (el
+   certificado del servidor **con su llave privada**, protegido con la
+   contraseña que te pida). El `.pfx` se instala en el servidor de cada
+   ubicación con `Import-PfxCertificate`; el script imprime la línea exacta.
 
-3. **Instala el APK** y ábrelo. En *Ajustes* (PIN de fábrica **`0000`**)
+   > El `.pfx` es la llave del servicio: trátalo como una contraseña y borra las
+   > copias en cuanto lo hayas instalado.
+
+   Copia el `schid_ca.crt` sobre `app/src/main/res/raw/schid_ca.crt`,
+   reemplazando el marcador que trae el repositorio, y recompila. El archivo
+   versionado es un **marcador de posición** que existe nada más para que el
+   proyecto compile; si se te olvida reemplazarlo, la app no conecta y falla con
+   error de certificado — que es la forma correcta de fallar.
+
+   `res/xml/network_security_config.xml` **ya no se toca por ubicación**: el
+   nombre `schid-servidor` es el mismo en todas.
+
+2. **Instala el APK** y ábrelo. En *Ajustes* (PIN de fábrica **`0000`**)
    captura:
-   - Dirección del servidor, **con el puerto incluido en la URL**
-     (`https://192.168.1.50:7443`).
+   - **La IP del servidor con su puerto** (`192.168.1.226:7443`). Solo la IP —
+     el nombre del certificado lo pone la app. Si omites el puerto se asume el
+     7443.
    - El token del kiosko (rol `Captura`).
    - **Un PIN nuevo.** La pantalla avisa mientras siga el de fábrica.
 
@@ -294,7 +330,9 @@ Studio lo genera solo al abrir el proyecto.
 La compilación de **depuración** acepta `http://`, para poder probar contra un
 servidor que todavía no tiene certificado. Son dos piezas que van juntas:
 
-- `ValidadorUrl` permite `http://` solo cuando `BuildConfig.DEBUG` es cierto.
+- `DireccionServidor` permite `http://` solo cuando `BuildConfig.DEBUG` es
+  cierto. Sin TLS no hay certificado que validar, así que ahí sí se conecta
+  directo a la IP.
 - `src/debug/res/xml/network_security_config.xml` reemplaza al de `src/main`
   durante `assembleDebug` y habilita el tráfico sin cifrar.
 
@@ -313,10 +351,11 @@ el token del kiosko viaja en claro.
 
    - **"El certificado del servidor no es de confianza"** — el `schid_ca.crt`
      que tiene la app no corresponde al que firmó el certificado del servidor,
-     o la IP con la que conectas no está en el SAN. Un handshake rechazado
-     falla al instante y **no deja rastro en el log del servidor**, porque la
-     conexión se corta antes de que llegue ninguna petición; por eso conviene
-     mirar aquí y no allá.
+     o el servidor no está usando el certificado compartido (el que lleva
+     `schid-servidor` en el SAN). Un handshake rechazado falla al instante y
+     **no deja rastro en el log del servidor**, porque la conexión se corta
+     antes de que llegue ninguna petición; por eso conviene mirar aquí y no
+     allá.
    - **"No se pudo conectar"** — IP, puerto, servicio detenido o el firewall de
      Windows bloqueando.
 

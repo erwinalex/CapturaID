@@ -36,9 +36,14 @@
     permiso de lectura sobre la llave privada.
 
 .EXAMPLE
-    # Todas las direcciones van en la MISMA lista, separadas por comas y sin
-    # espacios de por medio. Si alguna queda suelta fuera de -Direcciones, no
-    # entra al certificado.
+    # Un solo certificado para todas las ubicaciones. Se corre UNA vez, y el
+    # .pfx que exporta se instala igual en los 70 servidores.
+    .\New-SchIdCertificado.ps1 -Compartido
+
+.EXAMPLE
+    # Un certificado atado a las direcciones de UNA ubicación. Todas van en la
+    # misma lista, separadas por comas; si alguna queda suelta fuera de
+    # -Direcciones, no entra al certificado.
     .\New-SchIdCertificado.ps1 -Direcciones 192.168.1.226,192.168.1.250,schid-servidor
 
 .EXAMPLE
@@ -63,7 +68,22 @@
 # rechaza el comando y lo dice.
 [CmdletBinding(PositionalBinding = $false)]
 param(
-    [Parameter(Mandatory = $true, Position = 0)]
+    <#
+        Modo compartido: un solo certificado para TODAS las ubicaciones.
+
+        El certificado lleva únicamente el nombre "schid-servidor", sin ninguna
+        IP, y se exporta como .pfx para instalarlo tal cual en cada servidor. La
+        app siempre pide ese nombre y lo resuelve por su cuenta hacia la IP que
+        tenga configurada, así que el certificado no depende de la IP de nadie:
+        sirve igual donde la dirección es fija y donde el router la cambia.
+
+        Es lo que hace viable un despliegue de decenas de ubicaciones con una
+        sola compilación de la app.
+    #>
+    [Parameter(Mandatory = $true, ParameterSetName = "Compartido")]
+    [switch]$Compartido,
+
+    [Parameter(Mandatory = $true, ParameterSetName = "PorUbicacion", Position = 0)]
     [string[]]$Direcciones,
 
     [string]$CarpetaSalida = "C:\SchId\certificados",
@@ -92,6 +112,12 @@ New-Item -ItemType Directory -Force -Path $CarpetaSalida | Out-Null
 # SAN: se separan IPs de nombres DNS porque van en campos distintos, y Android
 # los trata distinto. Una IP registrada como DNS no sirve para https://<ip>.
 # ---------------------------------------------------------------------------
+if ($Compartido) {
+    # Sin IPs: el nombre es lo único que se verifica, y es el mismo en todas
+    # las ubicaciones.
+    $Direcciones = @($NombreServidor)
+}
+
 $entradasSan = foreach ($direccion in $Direcciones) {
     $ip = [System.Net.IPAddress]::None
     if ([System.Net.IPAddress]::TryParse($direccion, [ref]$ip)) {
@@ -217,6 +243,23 @@ $rutaCaCrt = Join-Path $CarpetaSalida "schid_ca.crt"
 $bytes = $ca.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
 [System.IO.File]::WriteAllBytes($rutaCaCrt, $bytes)
 
+# ---------------------------------------------------------------------------
+# 5. En modo compartido, el certificado se exporta para instalarlo en los demás
+#    servidores. Es el mismo archivo para las 70 ubicaciones.
+# ---------------------------------------------------------------------------
+if ($Compartido) {
+    $rutaPfx = Join-Path $CarpetaSalida "schid_servidor.pfx"
+
+    Write-Host ""
+    Write-Host "Modo compartido: hay que exportar el certificado con su llave privada" -ForegroundColor Cyan
+    Write-Host "para poder instalarlo en los demás servidores. Elige una contraseña" -ForegroundColor Cyan
+    Write-Host "para el archivo (la vas a necesitar al importarlo)." -ForegroundColor Cyan
+    $clave = Read-Host "Contraseña del .pfx" -AsSecureString
+
+    Export-PfxCertificate -Cert $certServidor -FilePath $rutaPfx -Password $clave | Out-Null
+    Write-Host "Exportado: $rutaPfx" -ForegroundColor Green
+}
+
 Write-Host ""
 Write-Host "=================================================================" -ForegroundColor Cyan
 Write-Host " Listo." -ForegroundColor Cyan
@@ -257,6 +300,18 @@ Write-Host "   $rutaCaCrt" -ForegroundColor White
 Write-Host ""
 Write-Host "4) Reinicia el servicio:  Restart-Service SchIdApi"
 Write-Host ""
+if ($Compartido) {
+    Write-Host ""
+    Write-Host "En cada uno de los demás servidores:" -ForegroundColor Cyan
+    Write-Host "  Import-PfxCertificate -FilePath schid_servidor.pfx ``" -ForegroundColor White
+    Write-Host "    -CertStoreLocation Cert:\LocalMachine\My -Password (Read-Host -AsSecureString)" -ForegroundColor White
+    Write-Host ""
+    Write-Host "El .pfx lleva la llave privada del servidor: trátalo como una contraseña." -ForegroundColor Yellow
+    Write-Host "Cuando termines de instalarlo en las ubicaciones, bórralo de donde lo" -ForegroundColor Yellow
+    Write-Host "hayas copiado." -ForegroundColor Yellow
+    Write-Host ""
+}
+
 Write-Host "El certificado del servidor vence el $($certServidor.NotAfter.ToString('yyyy-MM-dd'))." -ForegroundColor Yellow
 Write-Host "La CA vence el $($ca.NotAfter.ToString('yyyy-MM-dd')). Mientras la CA siga vigente," -ForegroundColor Yellow
 Write-Host "renovar el certificado del servidor es volver a correr este script, sin" -ForegroundColor Yellow

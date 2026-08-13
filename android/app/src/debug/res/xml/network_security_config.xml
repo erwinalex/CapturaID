@@ -9,8 +9,9 @@
 
     El de src/main —el que se compila en release— sigue con
     cleartextTrafficPermitted="false" y confiando únicamente en la CA propia.
-    Si alguien configura una URL http en un APK de release, la app lo rechaza
-    al capturarla (ver ValidadorUrl) y la red lo bloquearía de todos modos.
+    Si alguien configura una dirección http en un APK de release, la app lo
+    rechaza al capturarla (ver DireccionServidor) y la red lo bloquearía de
+    todos modos.
 
     Mientras uses este build, ten presente que el token del kiosko viaja en
     claro por la red.

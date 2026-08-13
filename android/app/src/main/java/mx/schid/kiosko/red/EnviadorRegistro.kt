@@ -3,6 +3,7 @@ package mx.schid.kiosko.red
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import mx.schid.kiosko.config.AjustesServidor
+import mx.schid.kiosko.config.DireccionServidor
 import mx.schid.kiosko.datos.DocumentoCapturado
 
 /**
@@ -32,6 +33,11 @@ class EnviadorHttp(private val ajustes: AjustesServidor) : EnviadorRegistro {
         imagenFrente: ByteArray?,
         imagenReverso: ByteArray?
     ): ResultadoEnvio = withContext(Dispatchers.IO) {
-        SchIdApi(ajustes.urlBase, ajustes.token).registrar(documento, imagenFrente, imagenReverso)
+        val destino = DireccionServidor.interpretar(ajustes.direccionServidor)
+            ?: return@withContext ResultadoEnvio.Rechazado(
+                "La dirección del servidor está mal configurada en este kiosko."
+            )
+
+        SchIdApi(destino, ajustes.token).registrar(documento, imagenFrente, imagenReverso)
     }
 }

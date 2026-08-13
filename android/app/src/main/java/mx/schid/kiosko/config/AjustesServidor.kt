@@ -7,7 +7,8 @@ package mx.schid.kiosko.config
  * cifrado— para poder probar el flujo con una implementación de mentira.
  */
 interface AjustesServidor {
-    val urlBase: String
+    /** IP o nombre del servidor de esta ubicación, con puerto opcional. */
+    val direccionServidor: String
     val token: String
     val estaConfigurado: Boolean
 }

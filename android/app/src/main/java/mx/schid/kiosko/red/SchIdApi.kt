@@ -1,6 +1,8 @@
 package mx.schid.kiosko.red
 
+import mx.schid.kiosko.config.DireccionServidor
 import mx.schid.kiosko.datos.DocumentoCapturado
+import okhttp3.Dns
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -8,6 +10,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
+import java.net.InetAddress
 import javax.net.ssl.SSLException
 import java.util.concurrent.TimeUnit
 
@@ -43,6 +46,22 @@ sealed interface ResultadoEnvio {
 data class ResultadoPrueba(val correcto: Boolean, val mensaje: String)
 
 /**
+ * Manda el nombre del certificado a la IP que se configuró, y deja pasar
+ * cualquier otro nombre al resolutor del sistema.
+ */
+private class ResolutorFijo(private val destino: DireccionServidor.Destino) : Dns {
+    override fun lookup(hostname: String): List<InetAddress> {
+        if (!hostname.equals(DireccionServidor.NOMBRE_CERTIFICADO, ignoreCase = true)) {
+            return Dns.SYSTEM.lookup(hostname)
+        }
+
+        // getAllByName con una IP literal la devuelve sin consultar a nadie; con
+        // un nombre, lo resuelve como siempre.
+        return InetAddress.getAllByName(destino.host).toList()
+    }
+}
+
+/**
  * Cliente de la API de SchId.
  *
  * No se usa Retrofit a propósito: es una sola llamada y una construcción de
@@ -55,15 +74,30 @@ data class ResultadoPrueba(val correcto: Boolean, val mensaje: String)
  * es la forma más común de acabar aceptando cualquier certificado).
  */
 class SchIdApi(
-    private val urlBase: String,
+    private val destino: DireccionServidor.Destino,
     private val token: String,
-    private val cliente: OkHttpClient = clientePorOmision()
+    private val cliente: OkHttpClient = clientePorOmision(destino)
 ) {
+
+    private val urlBase = destino.url
 
     companion object {
         private val JPEG = "image/jpeg".toMediaType()
 
-        fun clientePorOmision(): OkHttpClient = OkHttpClient.Builder()
+        /**
+         * El cliente resuelve por su cuenta el nombre del certificado hacia la
+         * IP configurada en el kiosko. Eso es lo que permite un solo
+         * certificado y un solo APK para todas las ubicaciones: para TLS el
+         * nombre siempre es el mismo, y la IP —que cambia de sitio en sitio, y a
+         * veces dentro del mismo sitio— entra por aquí y no por el certificado.
+         *
+         * No se debilita nada: la cadena se sigue validando contra nuestra CA y
+         * el nombre se sigue verificando. Lo único que se sustituye es el paso
+         * de resolución de nombres, que en una red local sin DNS propio no
+         * existe.
+         */
+        fun clientePorOmision(destino: DireccionServidor.Destino): OkHttpClient = OkHttpClient.Builder()
+            .dns(ResolutorFijo(destino))
             // Tiempos cortos: si la red local no responde, es mejor avisarle al
             // huésped que se quede mirando una pantalla congelada.
             .connectTimeout(10, TimeUnit.SECONDS)

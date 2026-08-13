@@ -40,7 +40,7 @@ class CapturaViewModelTest {
     private val jpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0x01)
 
     private class AjustesDePrueba(
-        override val urlBase: String = "https://servidor:7443",
+        override val direccionServidor: String = "192.168.1.226:7443",
         override val token: String = "token",
         override val estaConfigurado: Boolean = true
     ) : AjustesServidor

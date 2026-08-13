@@ -32,8 +32,11 @@
     por un error de configuración: si alguien deja la URL en http://, la app
     falla de inmediato en vez de mandar el token en claro sin avisar.
 
-    Cambia schid-servidor por la IP o el nombre real, y que coincida EXACTAMENTE
-    con lo que se puso en el SAN del certificado y con la URL que usa la app.
+    Este archivo NO se toca por ubicación. La app pide siempre
+    https://schid-servidor:puerto y resuelve ese nombre ella misma hacia la IP
+    configurada en el kiosko (ver DireccionServidor). El nombre es el mismo en
+    las 70 ubicaciones, así que aquí basta declararlo una vez y el mismo APK
+    sirve para todas.
 -->
 <network-security-config>
 
@@ -44,10 +47,11 @@
     </base-config>
 
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="false">schid-servidor</domain>
-        <!-- Si el kiosko apunta por IP, agrega también:
-        <domain includeSubdomains="false">192.168.1.50</domain>
+        <!--
+            El único nombre con el que la app habla con el servidor. No hace
+            falta declarar las IPs: nunca aparecen en la URL.
         -->
+        <domain includeSubdomains="false">schid-servidor</domain>
         <trust-anchors>
             <certificates src="@raw/schid_ca" />
         </trust-anchors>

@@ -27,7 +27,7 @@ class ConfiguracionKiosko(context: Context) : AjustesServidor {
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
 
-    override var urlBase: String
+    override var direccionServidor: String
         get() = prefs.getString(CLAVE_URL, "").orEmpty()
         set(valor) = prefs.edit().putString(CLAVE_URL, valor.trim()).apply()
 
@@ -44,7 +44,7 @@ class ConfiguracionKiosko(context: Context) : AjustesServidor {
         set(valor) = prefs.edit().putString(CLAVE_PIN, valor).apply()
 
     override val estaConfigurado: Boolean
-        get() = urlBase.isNotBlank() && token.isNotBlank()
+        get() = direccionServidor.isNotBlank() && token.isNotBlank()
 
     /**
      * Si sigue el PIN de fábrica, cualquiera que sepa que este software existe
@@ -54,12 +54,12 @@ class ConfiguracionKiosko(context: Context) : AjustesServidor {
         get() = pinAdministracion == PIN_INICIAL
 
     /**
-     * Ver [ValidadorUrl]. Se acepta http únicamente en compilaciones de
+     * Ver [DireccionServidor]. Se acepta http únicamente en compilaciones de
      * depuración, para poder probar contra un servidor que todavía no tiene
      * certificado; el APK de release lo rechaza.
      */
-    fun validarUrl(url: String): String? =
-        ValidadorUrl.validar(url, permiteHttp = BuildConfig.DEBUG)
+    fun validarDireccion(texto: String): String? =
+        DireccionServidor.validar(texto, permiteHttp = BuildConfig.DEBUG)
 
     private companion object {
         const val CLAVE_URL = "url_base"

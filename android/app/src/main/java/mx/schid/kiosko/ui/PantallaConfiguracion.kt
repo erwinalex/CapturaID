@@ -24,7 +24,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import mx.schid.kiosko.config.ConfiguracionKiosko
-import mx.schid.kiosko.config.ValidadorUrl
+import mx.schid.kiosko.config.DireccionServidor
 import mx.schid.kiosko.red.ResultadoPrueba
 import mx.schid.kiosko.red.SchIdApi
 import kotlinx.coroutines.Dispatchers
@@ -99,7 +99,7 @@ private fun Ajustes(
     alAbrirDiagnostico: () -> Unit,
     alSalir: () -> Unit
 ) {
-    var url by remember { mutableStateOf(configuracion.urlBase) }
+    var url by remember { mutableStateOf(configuracion.direccionServidor) }
     var token by remember { mutableStateOf(configuracion.token) }
     var pinNuevo by remember { mutableStateOf("") }
     var mensaje by remember { mutableStateOf<String?>(null) }
@@ -127,15 +127,18 @@ private fun Ajustes(
         OutlinedTextField(
             value = url,
             onValueChange = { url = it },
-            label = { Text("Dirección del servidor") },
-            placeholder = { Text("https://192.168.1.50:7443") },
+            label = { Text("IP del servidor") },
+            placeholder = { Text("192.168.1.226:7443") },
+            supportingText = {
+                Text("Solo la IP y el puerto. El nombre del certificado lo pone la app.")
+            },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
         )
 
         // El puerto va en la propia URL. Se avisa de http porque es fácil
         // dejarlo puesto después de una prueba y no notarlo.
-        if (ValidadorUrl.esSinCifrar(url)) {
+        if (DireccionServidor.esSinCifrar(url)) {
             Text(
                 "Sin cifrar: el token viaja en claro por la red. Úsalo solo para pruebas.",
                 color = Color(0xFFB26A00),
@@ -171,14 +174,14 @@ private fun Ajustes(
 
         Button(
             onClick = {
-                val problema = configuracion.validarUrl(url)
+                val problema = configuracion.validarDireccion(url)
                 when {
                     problema != null -> error = problema
                     token.isBlank() -> error = "Falta el token."
                     pinNuevo.isNotBlank() && pinNuevo.length < 4 ->
                         error = "El PIN debe tener al menos 4 dígitos."
                     else -> {
-                        configuracion.urlBase = url
+                        configuracion.direccionServidor = url
                         configuracion.token = token
                         if (pinNuevo.isNotBlank()) {
                             configuracion.pinAdministracion = pinNuevo
@@ -200,7 +203,7 @@ private fun Ajustes(
         // huésped, a propósito, no dice nada técnico.
         Button(
             onClick = {
-                val problema = configuracion.validarUrl(url)
+                val problema = configuracion.validarDireccion(url)
                 if (problema != null) {
                     resultadoPrueba = ResultadoPrueba(false, problema)
                     return@Button
@@ -210,7 +213,12 @@ private fun Ajustes(
                 resultadoPrueba = null
                 alcance.launch {
                     val resultado = withContext(Dispatchers.IO) {
-                        SchIdApi(url.trim(), token.trim()).probarConexion()
+                        val destino = DireccionServidor.interpretar(url)
+                        if (destino == null) {
+                            ResultadoPrueba(false, "No se entiende la dirección.")
+                        } else {
+                            SchIdApi(destino, token.trim()).probarConexion()
+                        }
                     }
                     resultadoPrueba = resultado
                     probando = false
