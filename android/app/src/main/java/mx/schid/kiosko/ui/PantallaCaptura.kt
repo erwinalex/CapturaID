@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
@@ -23,7 +25,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -31,6 +39,7 @@ import androidx.compose.ui.tooling.preview.Devices
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import mx.schid.kiosko.datos.RecorteCredencial
 import mx.schid.kiosko.datos.TipoDocumento
 
 /**
@@ -219,12 +228,24 @@ private fun Camara(
     val detectar by rememberUpdatedState(alDetectarCodigo)
 
     Box(modifier = Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { contexto -> PreviewView(contexto) },
-            update = { vista -> camara.conectar(vista) { codigo -> detectar(codigo) } },
-            onRelease = { camara.desconectar() },
-            modifier = Modifier.fillMaxSize()
-        )
+        // La caja tiene la proporción 3:4 de la captura, así que la vista previa
+        // la llena exacta y sin franjas. Eso es lo que permite que la guía
+        // dibujada encima corresponda punto por punto con lo que se recorta.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .aspectRatio(3f / 4f)
+        ) {
+            AndroidView(
+                factory = { contexto -> PreviewView(contexto) },
+                update = { vista -> camara.conectar(vista) { codigo -> detectar(codigo) } },
+                onRelease = { camara.desconectar() },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            GuiaCredencial(modifier = Modifier.fillMaxSize())
+        }
 
         Column(
             modifier = Modifier
@@ -234,6 +255,14 @@ private fun Camara(
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Text(
+                "Acomódalo dentro del recuadro: solo se guarda lo que quede dentro.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.LightGray,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
             Text(
                 mensaje,
                 style = MaterialTheme.typography.headlineSmall,
@@ -287,6 +316,44 @@ private fun Mensaje(
         Button(onClick = alPulsar, modifier = Modifier.padding(top = 32.dp)) {
             Text(textoBoton)
         }
+    }
+}
+
+/**
+ * Dibuja el rectángulo donde hay que acomodar el documento, y oscurece lo que
+ * queda fuera para que se entienda de un vistazo que eso no se va a guardar.
+ *
+ * La geometría sale de [RecorteCredencial], el mismo cálculo que aplica el
+ * recorte a la foto. No hay dos números que mantener de acuerdo.
+ */
+@Composable
+private fun GuiaCredencial(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val region = RecorteCredencial.calcular(size.width.toInt(), size.height.toInt())
+        val esquina = size.width * 0.03f
+
+        val hueco = Path().apply {
+            addRoundRect(
+                RoundRect(
+                    left = region.x.toFloat(),
+                    top = region.y.toFloat(),
+                    right = (region.x + region.ancho).toFloat(),
+                    bottom = (region.y + region.alto).toFloat(),
+                    cornerRadius = CornerRadius(esquina, esquina)
+                )
+            )
+        }
+
+        // Todo lo de fuera se oscurece; el hueco queda limpio.
+        clipPath(hueco, clipOp = ClipOp.Difference) {
+            drawRect(color = Color(0xB3000000))
+        }
+
+        drawPath(
+            path = hueco,
+            color = Color.White,
+            style = Stroke(width = 3.dp.toPx())
+        )
     }
 }
 

@@ -28,6 +28,35 @@ Esas tres cosas son deliberadas:
   tiene en la mano**, nunca el registro previo que hubiera en la base.
 - Las estancias las lleva el PMS.
 
+## El recorte a la credencial
+
+La cámara ve todo: el mostrador, la mano, lo que haya detrás. Según el formato
+del sensor puede acabar habiendo más fondo que documento, y eso significa más
+espacio del necesario, un OCR con más ruido del necesario, y datos del entorno
+que nadie pidió conservar.
+
+En la pantalla de captura hay una **guía con la proporción de una credencial**
+(ID-1 de la norma ISO/IEC 7810: 85.60 × 53.98 mm, la misma de una tarjeta
+bancaria). Lo que queda fuera se ve oscurecido, y **solo se guarda lo de
+adentro**.
+
+La geometría sale de `RecorteCredencial`, y de ahí salen las dos cosas: el
+rectángulo que se dibuja y el recorte que se aplica a la foto. Son el mismo
+cálculo a propósito — con dos números separados, cualquier ajuste en uno dejaría
+al otro mintiendo sobre lo que se va a guardar.
+
+Para que la guía corresponda con lo que se captura, la vista previa y la captura
+comparten proporción (4:3) y la vista se ajusta sin recortar. La caja que las
+contiene tiene esa misma proporción, así que no hay franjas ni desplazamientos
+entre lo que se ve y lo que se guarda.
+
+La guía deja margen a los lados a propósito: el huésped acomoda el documento a
+ojo, y es preferible guardar un poco de fondo a cortarle el borde a la
+credencial.
+
+Si el recorte falla por lo que sea, se guarda la foto completa. Es una mejora,
+no un requisito: mejor de más que quedarse sin imagen.
+
 ## Privacidad, que es lo que dicta el diseño
 
 - **Las fotos nunca tocan el disco.** `ImageCapture` se usa en su variante en

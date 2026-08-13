@@ -2,7 +2,9 @@ package mx.schid.kiosko.ui
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
@@ -10,6 +12,8 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
@@ -21,6 +25,8 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import mx.schid.kiosko.datos.OrigenDatos
+import mx.schid.kiosko.datos.RecorteCredencial
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -128,12 +134,25 @@ class CamaraKiosko(
         futuro.addListener({
             val proveedor = futuro.get()
 
-            val nuevoPreview = Preview.Builder().build().also {
-                it.setSurfaceProvider(vista.surfaceProvider)
-            }
+            // Vista previa y captura comparten proporción, y la vista se ajusta
+            // sin recortar. Así el rectángulo que el huésped ve en pantalla
+            // corresponde exactamente a la misma región de la foto; si la vista
+            // recortara o las proporciones difirieran, la guía estaría mintiendo
+            // sobre lo que se va a guardar.
+            vista.scaleType = PreviewView.ScaleType.FIT_CENTER
+
+            val proporcion = ResolutionSelector.Builder()
+                .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+                .build()
+
+            val nuevoPreview = Preview.Builder()
+                .setResolutionSelector(proporcion)
+                .build()
+                .also { it.setSurfaceProvider(vista.surfaceProvider) }
 
             val captura = ImageCapture.Builder()
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setResolutionSelector(proporcion)
                 .build()
 
             val analisis = ImageAnalysis.Builder()
@@ -179,7 +198,10 @@ class CamaraKiosko(
             ContextCompat.getMainExecutor(contexto),
             object : ImageCapture.OnImageCapturedCallback() {
                 override fun onCaptureSuccess(imagen: ImageProxy) {
-                    alTerminar(imagen.use { aBytes(it) })
+                    val recortada = imagen.use {
+                        enderezarYRecortar(aBytes(it), it.imageInfo.rotationDegrees)
+                    }
+                    alTerminar(recortada)
                 }
 
                 override fun onError(excepcion: ImageCaptureException) {
@@ -207,11 +229,56 @@ class CamaraKiosko(
             .addOnCompleteListener { bitmap.recycle() }
     }
 
+    /**
+     * Endereza la foto según la rotación del sensor y la recorta a la guía.
+     *
+     * El orden importa: la rotación se aplica primero porque el recorte está
+     * definido sobre la imagen tal como la ve el huésped, no como la entrega el
+     * sensor —que en un dispositivo en vertical suele venir girado 90 grados.
+     *
+     * Si algo falla se devuelve la foto completa. Es preferible guardar de más
+     * que quedarse sin imagen: el recorte es una mejora, no un requisito.
+     */
+    private fun enderezarYRecortar(jpeg: ByteArray, gradosRotacion: Int): ByteArray {
+        return try {
+            val original = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size) ?: return jpeg
+
+            val enderezada = if (gradosRotacion == 0) {
+                original
+            } else {
+                val matriz = Matrix().apply { postRotate(gradosRotacion.toFloat()) }
+                Bitmap.createBitmap(original, 0, 0, original.width, original.height, matriz, true)
+                    .also { if (it !== original) original.recycle() }
+            }
+
+            val region = RecorteCredencial.calcular(enderezada.width, enderezada.height)
+            val recortada = Bitmap.createBitmap(
+                enderezada, region.x, region.y, region.ancho, region.alto
+            )
+            if (recortada !== enderezada) enderezada.recycle()
+
+            val salida = ByteArrayOutputStream()
+            recortada.compress(Bitmap.CompressFormat.JPEG, CALIDAD_JPEG, salida)
+            recortada.recycle()
+
+            salida.toByteArray()
+        } catch (e: OutOfMemoryError) {
+            jpeg
+        } catch (e: Exception) {
+            jpeg
+        }
+    }
+
     private fun aBytes(imagen: ImageProxy): ByteArray {
         val buffer = imagen.planes[0].buffer
         val bytes = ByteArray(buffer.remaining())
         buffer.get(bytes)
         return bytes
+    }
+
+    private companion object {
+        /** Alto para un documento; la imagen ya viene recortada, así que no pesa. */
+        const val CALIDAD_JPEG = 92
     }
 
     /** Se llama cuando la app deja de necesitar la cámara del todo. */
