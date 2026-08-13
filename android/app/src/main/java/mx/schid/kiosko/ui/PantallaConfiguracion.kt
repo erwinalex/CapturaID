@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,6 +25,11 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import mx.schid.kiosko.config.ConfiguracionKiosko
 import mx.schid.kiosko.config.ValidadorUrl
+import mx.schid.kiosko.red.ResultadoPrueba
+import mx.schid.kiosko.red.SchIdApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Ajustes del kiosko, detrás de un PIN. Es la única pantalla que pide algo
@@ -98,6 +104,9 @@ private fun Ajustes(
     var pinNuevo by remember { mutableStateOf("") }
     var mensaje by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var probando by remember { mutableStateOf(false) }
+    var resultadoPrueba by remember { mutableStateOf<ResultadoPrueba?>(null) }
+    val alcance = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -183,6 +192,42 @@ private fun Ajustes(
             modifier = Modifier.padding(top = 24.dp)
         ) {
             Text("Guardar")
+        }
+
+        // Prueba la conexión de verdad, con la URL y el token capturados. Sin
+        // esto, el único momento de enterarse de un problema de certificado o
+        // de firewall era con un huésped enfrente — y el mensaje que ve el
+        // huésped, a propósito, no dice nada técnico.
+        Button(
+            onClick = {
+                val problema = configuracion.validarUrl(url)
+                if (problema != null) {
+                    resultadoPrueba = ResultadoPrueba(false, problema)
+                    return@Button
+                }
+
+                probando = true
+                resultadoPrueba = null
+                alcance.launch {
+                    val resultado = withContext(Dispatchers.IO) {
+                        SchIdApi(url.trim(), token.trim()).probarConexion()
+                    }
+                    resultadoPrueba = resultado
+                    probando = false
+                }
+            },
+            enabled = !probando && token.isNotBlank(),
+            modifier = Modifier.padding(top = 24.dp)
+        ) {
+            Text(if (probando) "Probando..." else "Probar conexión")
+        }
+
+        resultadoPrueba?.let { resultado ->
+            Text(
+                resultado.mensaje,
+                color = if (resultado.correcto) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 12.dp)
+            )
         }
 
         TextButton(onClick = alAbrirDiagnostico, modifier = Modifier.padding(top = 16.dp)) {

@@ -324,6 +324,11 @@ class CapturaViewModel(
                     mensaje = "Listo. Puedes pasar a recepción."
                 )
 
+                is ResultadoEnvio.CertificadoRechazado -> EstadoCaptura(
+                    paso = Paso.ERROR,
+                    mensaje = "El kiosko no confía en el certificado del servidor. Avisa al personal."
+                )
+
                 is ResultadoEnvio.TokenRechazado -> EstadoCaptura(
                     paso = Paso.ERROR,
                     mensaje = "Este kiosko perdió su acceso al servidor. Avisa al personal."

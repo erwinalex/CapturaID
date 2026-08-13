@@ -274,7 +274,24 @@ dirección y en la red. Así una prueba no se te cuela a producción por descuid
 Mientras uses http, la pantalla de ajustes te lo recuerda — y ten presente que
 el token del kiosko viaja en claro.
 
-4. **Ancla la app a la pantalla.** La app llama a `startLockTask()` al abrirse.
+4. **Prueba la conexión** desde la misma pantalla de Ajustes, con el botón
+   *Probar conexión*. Pide un endpoint que el token del kiosko no tiene
+   permitido, así que un **403 es la mejor respuesta posible**: demuestra que el
+   TLS se estableció, que el servidor recibió la petición y que reconoció el
+   token.
+
+   Si algo falla, ahí sí sale el motivo técnico. Los dos habituales:
+
+   - **"El certificado del servidor no es de confianza"** — el `schid_ca.crt`
+     que tiene la app no corresponde al que firmó el certificado del servidor,
+     o la IP con la que conectas no está en el SAN. Un handshake rechazado
+     falla al instante y **no deja rastro en el log del servidor**, porque la
+     conexión se corta antes de que llegue ninguna petición; por eso conviene
+     mirar aquí y no allá.
+   - **"No se pudo conectar"** — IP, puerto, servicio detenido o el firewall de
+     Windows bloqueando.
+
+5. **Ancla la app a la pantalla.** La app llama a `startLockTask()` al abrirse.
    Sin un MDM, Android pide confirmación la primera vez. Para que quede anclada
    de forma permanente hay que ponerla como *device owner*:
 

@@ -45,6 +45,15 @@ var dryRun = !ejecutar;
 
 Directory.CreateDirectory(basePath);
 
+// Fecha del ejecutable que se está corriendo. Sirve para descartar de un
+// vistazo que se esté ejecutando un binario viejo, que es lo primero que hay que
+// verificar cuando un error "ya corregido" sigue apareciendo.
+var rutaEjecutable = Environment.ProcessPath;
+if (rutaEjecutable is not null && File.Exists(rutaEjecutable))
+{
+    Console.WriteLine($"Compilado: {File.GetLastWriteTime(rutaEjecutable):yyyy-MM-dd HH:mm:ss}");
+}
+
 Console.WriteLine($"Carpeta destino: {basePath}");
 Console.WriteLine(dryRun
     ? "Modo: SIMULACIÓN (no se escribe nada, no se modifica la base). Usa --ejecutar para hacerlo de verdad."
@@ -78,7 +87,11 @@ await using (var reader = await cmd.ExecuteReaderAsync())
 {
     while (await reader.ReadAsync())
     {
-        ids.Add(reader.GetInt64(0));
+        // Convert en lugar de GetInt64: si la columna resultara ser int en
+        // alguna instalación, GetInt64 revienta con un error de casteo que no
+        // dice cuál columna fue. Convert acepta int, bigint o numeric y sale de
+        // dudas de una vez.
+        ids.Add(Convert.ToInt64(reader.GetValue(0)));
     }
 }
 
@@ -179,7 +192,10 @@ static async Task<long?> ExtraerImagenAsync(
         return null;
     }
 
-    var tamano = reader.GetInt64(0);
+    // Convert por lo mismo que arriba: DATALENGTH devuelve int, y aunque el CAST
+    // del SELECT ya lo resuelve, leerlo así lo vuelve independiente de lo que
+    // decida devolver el motor.
+    var tamano = Convert.ToInt64(reader.GetValue(0));
     var path = ImagePathHelper.GetFullPath(basePath, id, side);
 
     if (dryRun)
