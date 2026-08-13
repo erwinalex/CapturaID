@@ -293,20 +293,30 @@ está en `sql/verificar_migracion.sql`.
    - `Autenticacion:Tokens` con al menos un token (ver arriba). Sin esto la API
      no arranca.
 3. `dotnet build` y `dotnet test` desde la raíz del repo.
-4. Antes de tocar datos reales, corre la migración en modo simulación:
+4. Antes de tocar datos reales, corre la migración. **Por omisión solo simula**,
+   así que este comando no modifica nada:
 
    ```
    cd src/SchId.ImageMigration
-   dotnet run -- "Server=localhost\SQLEXPRESS;Database=SCHIDData;Trusted_Connection=True;TrustServerCertificate=True;" "C:\SchId\ImagenesINE" --dry-run
+   dotnet run -- "Server=localhost\SQLEXPRESS;Database=SCHIDData;Trusted_Connection=True;TrustServerCertificate=True;" "C:\SchId\ImagenesINE"
    ```
 
-   Revisa la salida: te dice cuántas personas tienen imágenes y qué archivos
-   escribiría, sin tocar nada todavía.
+   Revisa la salida: te dice cuántas personas tienen imágenes, qué archivos
+   escribiría y de qué tamaño.
+
+   Ojo con el nombre de la instancia: en la línea de comandos de Windows la
+   barra invertida **no se escapa**, así que va sencilla (`localhost\SQLEXPRESS`).
+   Si escribes dos, se mandan las dos y no encuentra la instancia.
 
 5. **Haz un backup completo de `SCHIDData` antes del siguiente paso.**
-6. Corre la migración real (quitando `--dry-run`). Al terminar, sigue la
+6. Corre la migración real agregando **`--ejecutar`**. Al terminar, sigue la
    instrucción que imprime en pantalla para correr `DBCC SHRINKFILE` en SSMS
    y recuperar el espacio en disco.
+
+   El borrado se pide explícitamente a propósito: la herramienta vacía
+   `IDFoto1` e `IDFoto2`, y con ese nivel de daño lo que se olvida escribir no
+   debería ser el freno. Se puede volver a correr sin problema — las personas
+   cuyas columnas ya quedaron en NULL no se vuelven a procesar.
 7. Corre `sql/verificar_migracion.sql` antes y después para confirmar el
    espacio liberado y que ya no queden imágenes en la tabla.
 

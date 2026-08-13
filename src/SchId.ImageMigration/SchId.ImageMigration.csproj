@@ -5,7 +5,14 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <!--
+      NO poner InvariantGlobalization en true: Microsoft.Data.SqlClient no
+      soporta ese modo y falla al abrir la conexión con
+      "Globalization Invariant Mode is not supported", antes siquiera de
+      intentar llegar al servidor.
+    -->
+    <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
