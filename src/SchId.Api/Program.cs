@@ -107,6 +107,7 @@ ValidarTokensConfigurados(app.Services, app.Logger);
 var hayHttps = app.Configuration.GetSection("Kestrel:Endpoints:Https").Exists();
 var hayHttp = app.Configuration.GetSection("Kestrel:Endpoints:Http").Exists();
 AvisarSobreTransporte(app.Logger, hayHttps, hayHttp);
+DiagnosticoCertificado.Reportar(app.Configuration, app.Logger);
 
 if (app.Environment.IsDevelopment())
 {

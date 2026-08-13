@@ -150,14 +150,7 @@ class SchIdApi(
                 }
             }
         } catch (e: SSLException) {
-            ResultadoPrueba(
-                false,
-                "El certificado del servidor no es de confianza para esta app.\n\n" +
-                    "Copia el schid_ca.crt que generó el script en el servidor sobre " +
-                    "app/src/main/res/raw/schid_ca.crt y vuelve a compilar la app. " +
-                    "Revisa también que la IP con la que conectas esté en el certificado.\n\n" +
-                    "Detalle: ${e.message}"
-            )
+            ResultadoPrueba(false, explicarFalloTls(e))
         } catch (e: IOException) {
             ResultadoPrueba(
                 false,
@@ -166,6 +159,43 @@ class SchIdApi(
                     "Detalle: ${e.message}"
             )
         }
+    }
+
+    /**
+     * Traduce un fallo de TLS a algo accionable.
+     *
+     * La distinción importa porque manda a revisar lugares opuestos: si el
+     * problema fuera la confianza en la CA, Android lo dice con "trust anchor"
+     * y hay que tocar la app; si en cambio el servidor cierra la conexión, la
+     * app está bien y lo que falla es el certificado del servidor —lo más común,
+     * que el proceso no pueda leer su llave privada.
+     */
+    private fun explicarFalloTls(e: SSLException): String {
+        val detalle = e.message.orEmpty()
+        val texto = detalle.lowercase()
+
+        val causa = when {
+            "trust anchor" in texto || "certpath" in texto || "certificate_unknown" in texto ->
+                "La app no confía en la CA que firmó el certificado del servidor.\n\n" +
+                    "Copia el schid_ca.crt que generó el script sobre " +
+                    "app/src/main/res/raw/schid_ca.crt y vuelve a compilar la app."
+
+            "hostname" in texto || "subject alternative" in texto || "no subject alt" in texto ->
+                "El certificado no incluye la dirección con la que estás conectando.\n\n" +
+                    "Vuelve a generarlo pasando esa IP en -Direcciones."
+
+            "closed" in texto || "reset" in texto || "eof" in texto ->
+                "El servidor cerró la conexión durante el saludo TLS. La app está bien; " +
+                    "el problema está del lado del servidor.\n\n" +
+                    "Lo más común es que el proceso no pueda leer la llave privada del " +
+                    "certificado. Revisa el log del servicio al arrancar: ahí dice qué " +
+                    "certificado cargó y si tiene llave privada accesible."
+
+            else ->
+                "Falló el saludo TLS con el servidor."
+        }
+
+        return "$causa\n\nDetalle: $detalle"
     }
 
     private fun interpretar(json: String?): ResultadoEnvio {

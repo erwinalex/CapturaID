@@ -231,6 +231,42 @@ las CAs del sistema para todo lo demás.
 Con esa configuración no hace falta instalar nada a mano en el dispositivo ni
 pedir permisos de administrador en la tableta.
 
+### Si el kiosko dice que el servidor cerró la conexión
+
+Es el síntoma más desconcertante: la app falla al instante y en el servidor no
+aparece nada. **Un saludo TLS que el servidor corta no genera ninguna petición**,
+así que no hay nada que registrar en el log de acceso.
+
+Ojo con la diferencia, porque mandan a revisar lados opuestos:
+
+| Lo que dice la app | Dónde está el problema |
+|---|---|
+| "trust anchor ... not found" | En la app: le falta el `schid_ca.crt` correcto |
+| "connection closed" / "reset" | En el servidor: su certificado no es utilizable |
+
+Para el segundo caso, **el log del servicio al arrancar lo dice**. La API reporta
+qué certificado encontró, su huella, cuándo vence, las direcciones de su SAN y
+—lo importante— si puede leer su llave privada:
+
+```
+HTTPS: usando el certificado CN=schid-servidor, huella A1B2..., vence 2028-08-13.
+HTTPS: direcciones del certificado (SAN): IP Address=192.168.1.226, DNS Name=schid-servidor
+```
+
+Si en su lugar sale este error, esa es la causa:
+
+```
+HTTPS: el certificado NO tiene llave privada accesible para esta cuenta
+```
+
+Pasa cuando el certificado vive en el almacén de la máquina y la cuenta que
+corre el servicio no tiene permiso sobre la llave. El certificado carga —la
+parte pública siempre se puede leer— pero el saludo TLS no se completa. Se
+arregla con `certlm.msc`: botón derecho sobre el certificado, *Todas las
+tareas*, *Administrar claves privadas*, y agregar la cuenta. Si el servicio va a
+correr con una cuenta concreta, pásasela al script con `-CuentaServicio` y lo
+hace solo.
+
 ### Verificar que quedó bien
 
 Desde la PC del servidor:
