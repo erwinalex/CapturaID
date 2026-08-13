@@ -32,8 +32,21 @@ public sealed class RegistroDeConexiones
     /// </summary>
     public ILogger? Registro { get; set; }
 
-    public void ContarPeticion(string idConexion) =>
+    /// <summary>
+    /// Bajo Kestrel el identificador de conexión siempre viene, pero no todos
+    /// los servidores lo llenan —el TestServer de las pruebas de integración lo
+    /// deja nulo— y un diccionario concurrente no acepta claves nulas. Esto es
+    /// solo instrumentación: no tiene por qué poder tumbar una petición.
+    /// </summary>
+    public void ContarPeticion(string? idConexion)
+    {
+        if (string.IsNullOrEmpty(idConexion))
+        {
+            return;
+        }
+
         _peticiones.AddOrUpdate(idConexion, 1, (_, n) => n + 1);
+    }
 
     public async Task AtenderConexionAsync(ConnectionContext contexto, Func<Task> siguiente)
     {
