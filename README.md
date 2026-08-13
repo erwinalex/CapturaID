@@ -267,6 +267,41 @@ tareas*, *Administrar claves privadas*, y agregar la cuenta. Si el servicio va a
 correr con una cuenta concreta, pásasela al script con `-CuentaServicio` y lo
 hace solo.
 
+### Ver qué está pasando en cada conexión
+
+El servicio registra cada conexión TCP y cada petición HTTP:
+
+```
+[conexion] abierta desde 192.168.1.55:41234
+[peticion] POST /api/personas/registro desde 192.168.1.55 [kiosko-recepcion] -> 200 en 340 ms
+[conexion] cerrada 192.168.1.55:41234 tras 380 ms, 1 petición(es).
+```
+
+Lo que hace útil este par es **contar las peticiones de cada conexión**. Cuando
+el saludo TLS falla, la conexión se abre y se cierra sin llegar a producir
+ninguna petición, así que el log de peticiones no tiene nada que mostrar y desde
+el servidor parece que el cliente nunca llamó. Ese caso ahora se distingue solo:
+
+```
+[conexion] cerrada 192.168.1.55:41240 tras 28 ms, SIN peticiones HTTP.
+```
+
+Los códigos vienen explicados —`401` sin token, `403` rol insuficiente— y se
+registra con qué token entró cada petición, que es lo que permite ver de un
+vistazo si un kiosko está usando el equivocado. **El CURP no se escribe en el
+log**: la ruta de la consulta se guarda como `/api/personas/curp/***`.
+
+Para el motivo exacto de un saludo fallido, sube el nivel de Kestrel
+temporalmente en `appsettings.json`:
+
+```json
+"Microsoft.AspNetCore.Server.Kestrel": "Debug"
+```
+
+Es ruidoso para el día a día —registra cada lectura y escritura— así que
+conviene volverlo a bajar cuando termines. Y si el registro de conexiones
+estorba, se apaga con `"Diagnostico": { "RegistrarConexiones": false }`.
+
 ### Verificar que quedó bien
 
 Desde la PC del servidor:

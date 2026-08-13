@@ -5,10 +5,34 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using System.Text.Json.Serialization;
 using SchId.Api.Data;
+using SchId.Api.Diagnostico;
 using SchId.Api.Security;
 using SchId.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// El registro de conexiones se crea antes de configurar Kestrel porque el
+// middleware de conexión se engancha antes de que exista el contenedor de
+// servicios. Se comparte con el middleware de peticiones para poder contar
+// cuántas peticiones tuvo cada conexión — que es lo que permite distinguir un
+// saludo TLS fallido de una conexión normal.
+var registroConexiones = new RegistroDeConexiones();
+builder.Services.AddSingleton(registroConexiones);
+
+// Se puede apagar si el log estorba; por omisión está encendido porque este
+// servicio atiende un puñado de peticiones al día y el ruido es mínimo frente a
+// lo que cuesta diagnosticar a ciegas.
+var registrarConexiones = builder.Configuration.GetValue("Diagnostico:RegistrarConexiones", true);
+
+if (registrarConexiones)
+{
+    builder.WebHost.ConfigureKestrel(opciones =>
+    {
+        opciones.ConfigureEndpointDefaults(escucha =>
+            escucha.Use(siguiente => contexto =>
+                registroConexiones.AtenderConexionAsync(contexto, () => siguiente(contexto))));
+    });
+}
 
 // Permite que este mismo ejecutable corra como Windows Service cuando se
 // instala con `sc create` / NSSM, o como consola normal al correrlo con
@@ -100,6 +124,8 @@ builder.Services.AddAuthorization(options =>
 
 var app = builder.Build();
 
+registroConexiones.Registro = app.Logger;
+
 ValidarTokensConfigurados(app.Services, app.Logger);
 
 // Se consulta app.Configuration y no builder.Configuration por lo mismo que el
@@ -123,7 +149,16 @@ if (hayHttps)
     app.UseHttpsRedirection();
 }
 
+// Va después de la autenticación para poder registrar con qué token entró cada
+// petición, y antes del ruteo para que también se vean las que no llegan a
+// ningún endpoint.
 app.UseAuthentication();
+
+if (registrarConexiones)
+{
+    app.UseMiddleware<RegistroDePeticiones>();
+}
+
 app.UseAuthorization();
 
 app.MapControllers();
