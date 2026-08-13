@@ -146,15 +146,23 @@ instalar y diagnosticar— pero lo deja dicho en el log con un warning.
 
 ### 1. Generar los certificados
 
-En la PC del servidor, como administrador:
+En la PC del servidor, en una ventana de PowerShell **como administrador**:
 
 ```powershell
 cd scripts
-.\New-SchIdCertificado.ps1 -Direcciones 192.168.1.50, schid-servidor
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\New-SchIdCertificado.ps1 -Direcciones 192.168.1.226,192.168.1.250,schid-servidor
 ```
 
+Windows viene con la ejecución de scripts deshabilitada, de ahí el
+`Set-ExecutionPolicy`. Con `-Scope Process` el permiso muere al cerrar la
+ventana, así que no deja la máquina permanentemente más abierta por algo que se
+hace una vez.
+
 Pon en `-Direcciones` **todas** las formas en que los kioskos van a alcanzar al
-servidor. Eso es lo que acaba en el SAN del certificado, y **Android valida el
+servidor, en una sola lista separada por comas. Si alguna se queda suelta fuera
+de la lista, el script rechaza el comando en lugar de generar en silencio un
+certificado incompleto. Eso es lo que acaba en el SAN del certificado, y **Android valida el
 SAN e ignora el CN**: si el kiosko apunta a `https://192.168.1.50` y esa IP no
 está ahí, la conexión falla aunque el certificado sea perfectamente válido. Las
 IPs y los nombres DNS van en campos distintos del SAN; el script los separa

@@ -36,17 +36,34 @@
     permiso de lectura sobre la llave privada.
 
 .EXAMPLE
-    .\New-SchIdCertificado.ps1 -Direcciones 192.168.1.50, schid-servidor
+    # Todas las direcciones van en la MISMA lista, separadas por comas y sin
+    # espacios de por medio. Si alguna queda suelta fuera de -Direcciones, no
+    # entra al certificado.
+    .\New-SchIdCertificado.ps1 -Direcciones 192.168.1.226,192.168.1.250,schid-servidor
 
 .EXAMPLE
     .\New-SchIdCertificado.ps1 -Direcciones 192.168.1.50 -CuentaServicio "NT SERVICE\SchIdApi"
 
 .NOTES
     Correr como administrador, en la PC donde está instalada la API.
+
+    Si Windows responde "la ejecución de scripts está deshabilitada en este
+    sistema", habilítala solo para esta ventana de PowerShell:
+
+        Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+    Con -Scope Process el permiso muere al cerrar la ventana, así que no deja
+    la máquina permanentemente más abierta por una tarea que se hace una vez.
 #>
-[CmdletBinding()]
+# PositionalBinding en false a propósito: sin esto, un argumento suelto —una
+# dirección que se quedó fuera de la lista de -Direcciones, por ejemplo— se
+# ligaría en silencio al siguiente parámetro por posición, que es CarpetaSalida.
+# El resultado sería un certificado sin esa dirección en el SAN y los archivos
+# escritos en una carpeta con nombre de servidor. Así, en cambio, PowerShell
+# rechaza el comando y lo dice.
+[CmdletBinding(PositionalBinding = $false)]
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, Position = 0)]
     [string[]]$Direcciones,
 
     [string]$CarpetaSalida = "C:\SchId\certificados",
