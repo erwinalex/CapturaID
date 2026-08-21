@@ -64,7 +64,8 @@ no un requisito: mejor de más que quedarse sin imagen.
   temporales ni nada en la galería.
 - **`FLAG_SECURE`** bloquea capturas de pantalla, grabación y la miniatura que
   Android guarda de la app en la lista de recientes — esa miniatura sería una
-  copia de la INE conservada por el sistema sin que nadie la pidiera.
+  copia de la INE conservada por el sistema sin que nadie la pidiera. Se aplica
+  **con el modo kiosko encendido o apagado**; no es configurable.
 - **Sin respaldos.** `allowBackup=false` y reglas de extracción que excluyen
   todo: el token no tiene por qué acabar en una copia en la nube.
 - **El contenido del código de barras no se guarda ni se registra en el log.**
@@ -366,18 +367,52 @@ el token del kiosko viaja en claro.
    - **"No se pudo conectar"** — IP, puerto, servicio detenido o el firewall de
      Windows bloqueando.
 
-5. **Ancla la app a la pantalla.** La app llama a `startLockTask()` al abrirse.
-   Sin un MDM, Android pide confirmación la primera vez. Para que quede anclada
-   de forma permanente hay que ponerla como *device owner*:
+5. **Decide el modo de operación.** En *Ajustes* hay un interruptor **Modo
+   kiosko**, encendido por omisión. Ver abajo.
 
-   ```bash
-   adb shell dpm set-device-owner mx.schid.kiosko/.AdminReceptor
-   ```
+## Modo kiosko, encendido o apagado
 
-   Eso requiere un `DeviceAdminReceiver`, que **todavía no está implementado**:
-   por ahora el anclaje es el de Android con confirmación del usuario. La app
-   también declara la categoría `HOME`, así que puedes elegirla como lanzador
-   para que el botón de inicio no saque al huésped al escritorio.
+No todas las ubicaciones usan un aparato dedicado: algunas quieren el mismo
+teléfono para otras cosas. El interruptor vive en *Ajustes*, detrás del PIN de
+administración, y cambia tres cosas:
+
+| | Kiosko encendido | Kiosko apagado |
+|---|---|---|
+| Anclaje a la pantalla (`startLockTask`) | Sí | No |
+| La pantalla no se apaga sola | Sí | No |
+| Se ofrece como lanzador del dispositivo | Sí | No |
+| **Bloqueo de capturas (`FLAG_SECURE`)** | **Sí** | **Sí** |
+
+Lo que **no** es configurable es el bloqueo de capturas de pantalla: protege los
+datos de la INE que están en pantalla, y eso hace falta igual en los dos modos —
+fuera del kiosko hace más falta todavía, porque ahí el dispositivo se comparte
+con otras apps y otras personas. Está fijado en `ModoOperacion` y hay una prueba
+que lo sostiene, para que no se pierda el día que alguien simplifique "todo lo
+del kiosko" en una sola bandera.
+
+El cambio surte efecto **al salir de Ajustes**, sin reiniciar: apagarlo llama a
+`stopLockTask()` y libera el aparato en el momento. Importa que sea así — con la
+app anclada, reiniciarla es justo lo que no se puede hacer.
+
+La categoría `HOME` vive en un `activity-alias` (`LanzadorKiosko`) que la app
+habilita o deshabilita en caliente, y no en el `intent-filter` de la actividad.
+Un `intent-filter` no se puede apagar; sin esa separación, un teléfono de uso
+mixto preguntaría "¿con qué app quieres abrir Inicio?" cada vez que alguien
+pulsa el botón de inicio. Arranca deshabilitado, así que una instalación nueva
+no se ofrece como lanzador antes de que nadie la haya configurado.
+
+### Anclaje permanente
+
+Con el modo kiosko encendido y sin un MDM, Android pide confirmación la primera
+vez que se ancla. Para que quede anclada de forma permanente hay que poner la app
+como *device owner*:
+
+```bash
+adb shell dpm set-device-owner mx.schid.kiosko/.AdminReceptor
+```
+
+Eso requiere un `DeviceAdminReceiver`, que **todavía no está implementado**: por
+ahora el anclaje es el de Android con confirmación del usuario.
 
 ## Pendientes
 

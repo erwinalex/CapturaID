@@ -43,6 +43,21 @@ class ConfiguracionKiosko(context: Context) : AjustesServidor {
         get() = prefs.getString(CLAVE_PIN, PIN_INICIAL).orEmpty()
         set(valor) = prefs.edit().putString(CLAVE_PIN, valor).apply()
 
+    /**
+     * Si la app se apodera del dispositivo (ver [ModoOperacion]).
+     *
+     * Por omisión **sí**: es lo que hacía la app antes de que esto fuera
+     * configurable, y un kiosko ya instalado no debe quedar desanclado por
+     * actualizarla. Quien quiera usar el teléfono para otras cosas lo apaga a
+     * propósito desde esta pantalla.
+     */
+    var modoKiosko: Boolean
+        get() = prefs.getBoolean(CLAVE_MODO_KIOSKO, true)
+        set(valor) = prefs.edit().putBoolean(CLAVE_MODO_KIOSKO, valor).apply()
+
+    val modoOperacion: ModoOperacion
+        get() = ModoOperacion.para(modoKiosko)
+
     override val estaConfigurado: Boolean
         get() = direccionServidor.isNotBlank() && token.isNotBlank()
 
@@ -65,6 +80,7 @@ class ConfiguracionKiosko(context: Context) : AjustesServidor {
         const val CLAVE_URL = "url_base"
         const val CLAVE_TOKEN = "token"
         const val CLAVE_PIN = "pin_admin"
+        const val CLAVE_MODO_KIOSKO = "modo_kiosko"
         const val PIN_INICIAL = "0000"
     }
 }

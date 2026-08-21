@@ -3,6 +3,7 @@ package mx.schid.kiosko.ui
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -10,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -18,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
@@ -105,6 +108,7 @@ private fun Ajustes(
     var mensaje by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var probando by remember { mutableStateOf(false) }
+    var modoKiosko by remember { mutableStateOf(configuracion.modoKiosko) }
     var resultadoPrueba by remember { mutableStateOf<ResultadoPrueba?>(null) }
     val alcance = rememberCoroutineScope()
 
@@ -165,6 +169,30 @@ private fun Ajustes(
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp)
         )
 
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(top = 24.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Modo kiosko", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    if (modoKiosko) {
+                        "La app se ancla a la pantalla y el dispositivo no se apaga solo. " +
+                            "El huésped no puede salirse a otras aplicaciones."
+                    } else {
+                        "El dispositivo se puede usar para otras cosas. Los datos de la INE " +
+                            "siguen protegidos contra capturas de pantalla."
+                    },
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(
+                checked = modoKiosko,
+                onCheckedChange = { modoKiosko = it },
+                modifier = Modifier.padding(start = 12.dp)
+            )
+        }
+
         error?.let {
             Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 12.dp))
         }
@@ -183,6 +211,7 @@ private fun Ajustes(
                     else -> {
                         configuracion.direccionServidor = url
                         configuracion.token = token
+                        configuracion.modoKiosko = modoKiosko
                         if (pinNuevo.isNotBlank()) {
                             configuracion.pinAdministracion = pinNuevo
                             pinNuevo = ""

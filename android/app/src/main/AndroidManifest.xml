@@ -26,13 +26,35 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-                <!-- Con HOME, el kiosko puede quedar como lanzador del
-                     dispositivo: al encender o al presionar inicio se abre esta
-                     app y no el escritorio de Android. -->
+            </intent-filter>
+        </activity>
+
+        <!--
+            Con HOME, la app puede quedar como lanzador del dispositivo: al
+            encender o al presionar inicio se abre esta app y no el escritorio
+            de Android.
+
+            Va en un alias, y no en el intent-filter de la actividad, porque el
+            modo kiosko es configurable: un alias se puede habilitar y
+            deshabilitar en caliente con setComponentEnabledSetting, y un
+            intent-filter no. Sin esto, un teléfono que además se usa para otras
+            cosas preguntaría "¿con qué app quieres abrir Inicio?" cada vez.
+
+            Arranca deshabilitado y MainActivity lo habilita si el modo kiosko
+            está activo, para que una instalación nueva no se ofrezca como
+            lanzador antes de que nadie lo haya configurado.
+        -->
+        <activity-alias
+            android:name=".LanzadorKiosko"
+            android:targetActivity=".MainActivity"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
-        </activity>
+        </activity-alias>
 
     </application>
 

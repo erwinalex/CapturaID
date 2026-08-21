@@ -1,6 +1,7 @@
 package mx.schid.kiosko
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.WindowManager
@@ -47,10 +48,12 @@ class MainActivity : ComponentActivity() {
         // Android guarda de la app en la lista de recientes. En esta pantalla se
         // ve una credencial de elector, así que esa miniatura sería una copia de
         // la INE guardada por el sistema sin que nadie lo pidiera.
+        //
+        // No depende del modo: fuera del kiosko hace todavía más falta, porque
+        // el dispositivo se comparte con otras apps.
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
 
-        // Un kiosko que se apaga solo obliga a alguien a ir a despertarlo.
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        aplicarModoOperacion()
 
         hayCamara = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
@@ -73,7 +76,11 @@ class MainActivity : ComponentActivity() {
                         enConfiguracion -> PantallaConfiguracion(
                             configuracion = configuracion,
                             alAbrirDiagnostico = { enDiagnostico = true },
-                            alSalir = { enConfiguracion = false }
+                            alSalir = {
+                                enConfiguracion = false
+                                // El modo pudo haber cambiado ahí dentro.
+                                aplicarModoOperacion()
+                            }
                         )
 
                         !hayCamara -> Text(
@@ -98,13 +105,66 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        aplicarModoOperacion()
+    }
 
-        // Anclar la app a la pantalla. Sin un MDM que ponga la app como device
-        // owner, Android pide confirmación al usuario la primera vez; con device
-        // owner queda anclada de forma permanente. Se intenta siempre porque es
-        // lo que impide que un huésped se salga a curiosear el resto del
-        // dispositivo.
-        runCatching { startLockTask() }
+    /**
+     * Pone el dispositivo como pida el modo configurado.
+     *
+     * Se llama al arrancar, al volver a primer plano y al salir de los ajustes,
+     * porque el modo se cambia desde dentro de la propia app: si solo se
+     * aplicara en onCreate, apagar el modo kiosko no surtiría efecto hasta
+     * reiniciar la app — y estando anclada, reiniciarla es justo lo que no se
+     * puede hacer.
+     */
+    fun aplicarModoOperacion() {
+        val modo = configuracion.modoOperacion
+
+        if (modo.mantenerPantallaEncendida) {
+            // Un kiosko que se apaga solo obliga a alguien a ir a despertarlo.
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+
+        // Sin un MDM que ponga la app como device owner, Android pide
+        // confirmación al usuario la primera vez que se ancla; con device owner
+        // queda anclada de forma permanente.
+        //
+        // stopLockTask importa tanto como startLockTask: es lo que hace que
+        // apagar el modo kiosko libere el dispositivo en el momento, sin tener
+        // que desinstalar la app para recuperarlo.
+        runCatching {
+            if (modo.anclarPantalla) startLockTask() else stopLockTask()
+        }
+
+        habilitarComponente(LANZADOR, modo.puedeSerLanzador)
+    }
+
+    /**
+     * Enciende o apaga el alias que ofrece la app como lanzador del
+     * dispositivo. DONT_KILL_APP evita que Android reinicie el proceso al
+     * cambiarlo, que estando a mitad de una captura se perdería lo capturado.
+     */
+    private fun habilitarComponente(clase: String, habilitado: Boolean) {
+        val componente = ComponentName(packageName, clase)
+        val estado = if (habilitado) {
+            PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+        } else {
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        }
+
+        if (packageManager.getComponentEnabledSetting(componente) == estado) {
+            return
+        }
+
+        runCatching {
+            packageManager.setComponentEnabledSetting(componente, estado, PackageManager.DONT_KILL_APP)
+        }
+    }
+
+    private companion object {
+        const val LANZADOR = "mx.schid.kiosko.LanzadorKiosko"
     }
 }
 
