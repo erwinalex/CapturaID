@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
+    <!-- PdfSharp es MIT y no impone condiciones por facturación, a diferencia
+         de otras librerías de PDF. Con 70 ubicaciones no conviene depender de
+         una licencia que deje de aplicar si el cliente crece. -->
+    <PackageReference Include="PdfSharp" Version="6.2.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SchId.Shared\SchId.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- La fuente viaja dentro del ensamblado: PdfSharp fuera de Windows no
+         encuentra ninguna del sistema, y depender de las que tenga instaladas
+         cada máquina haría que la misma ficha se viera distinta en cada
+         ubicación. Liberation Sans es SIL OFL 1.1 (se puede incrustar y
+         redistribuir) y es métricamente compatible con Arial. -->
+    <EmbeddedResource Include="Fuentes\LiberationSans-Regular.ttf" />
+    <EmbeddedResource Include="Fuentes\LiberationSans-Bold.ttf" />
+    <None Include="Fuentes\LICENSE-LiberationSans.txt" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SchId.Tests" />
+  </ItemGroup>
+
+</Project>
