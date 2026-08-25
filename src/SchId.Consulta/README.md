@@ -11,32 +11,54 @@ para escritorio Windows solo se compila **desde** Windows con Visual Studio, y
 Delphi es un compilador comercial exclusivo de Windows: ninguno de los dos se
 puede construir en el entorno donde se desarrolló esto.
 
-.NET sí cruza-compila a un `.exe` de Windows, y además deja reutilizar
-`SchId.Shared`: la conversión del `TDateTime` de Delphi —que tiene la trampa de
-los dos días de desfase— y el cálculo del nombre de archivo de las imágenes. En
-Flutter o Delphi habría que reimplementar las dos cosas, y que se desincronicen
-con la API es cuestión de tiempo.
+.NET sí cruza-compila a un `.exe` de Windows, y además comparte solución con la
+API: los mismos modelos, el mismo token y las mismas convenciones. La conversión
+del `TDateTime` de Delphi —que tiene la trampa de los dos días de desfase— la
+hace el servidor y llega ya resuelta.
+
+## Va por la API, no contra SQL Server
+
+La primera versión se conectaba directo a la base de datos. Estaba mal, y por
+una razón concreta: **las imágenes nuevas viven como archivo en el disco del
+servidor**. Una aplicación en otra PC no puede leer `C:\SchId\ImagenesINE` sin
+un recurso compartido de Windows — y montar un compartido con imágenes de INE
+para que lo lea cada terminal es peor que servirlas por HTTP.
+
+Con el servidor de por medio, además: la cadena de conexión deja de andar suelta
+en cada terminal, el acceso pasa por el mismo token con roles que ya usa el
+kiosko, y viaja cifrado por el TLS que ya está montado.
+
+Usa tres endpoints, todos con el rol `Consulta`:
+
+| Endpoint | Para qué |
+|---|---|
+| `GET /api/personas/buscar?q=` | El listado, por nombre o CURP |
+| `GET /api/personas/{id}` | Los datos de la ficha |
+| `GET /api/personas/{id}/imagen/{frente\|reverso}` | Cada cara de la identificación |
 
 ## Las imágenes están en dos sitios
 
-Es el punto delicado. Conviven dos formas de guardar las identificaciones:
+Es el punto delicado, y lo resuelve **el servidor**. Conviven dos formas de
+guardar las identificaciones:
 
 - **La app móvil** deja un archivo en `ImageStorage:BasePath`, con el nombre que
   calcula `ImagePathHelper` (`{id}_frente.jpg`, `{id}_reverso.jpg`).
 - **El sistema anterior** guarda el binario en las columnas `IDFoto1` e
   `IDFoto2` de `dbo.Personas`.
 
-La aplicación busca **primero el archivo y luego la columna**. El orden importa:
-la herramienta de migración escribe el archivo y solo entonces vacía la columna,
-así que cuando existen los dos, el archivo es el que ya se dio por bueno.
-Preferir la columna mostraría la copia vieja de alguien ya migrado.
+La API busca **primero el archivo y luego la columna** (ver
+`ResolutorImagenesIne`). El orden importa: la herramienta de migración escribe
+el archivo y solo entonces vacía la columna, así que cuando existen los dos, el
+archivo es el que ya se dio por bueno. Preferir la columna mostraría la copia
+vieja de alguien ya migrado.
 
 Un archivo de cero bytes no cuenta como imagen y se cae a la columna: si algo
 salió mal al escribirlo, es mejor la copia vieja que una ficha sin
 identificación.
 
-La ficha dice de dónde salió cada imagen. Durante la transición eso permite ver
-qué personas ya están migradas sin entrar a la base a mano.
+La respuesta trae la cabecera `X-Origen-Imagen`, y la ficha dice de dónde salió
+cada imagen. Durante la transición eso permite ver qué personas ya están
+migradas sin entrar a la base a mano.
 
 ## Configuración
 
@@ -44,24 +66,41 @@ qué personas ya están migradas sin entrar a la base a mano.
 
 ```json
 {
-  "ConnectionStrings": {
-    "SchIdDatabase": "Server=localhost\\SQLEXPRESS;Database=SCHIDData;Trusted_Connection=True;TrustServerCertificate=True;"
-  },
-  "ImageStorage": {
-    "BasePath": "C:\\SchId\\ImagenesINE"
+  "Servidor": {
+    "Direccion": "192.168.1.226:7443",
+    "Token": "el-token-con-rol-Consulta"
   }
 }
 ```
 
-Si la carpeta de imágenes no está configurada o no existe, la aplicación **lo
-dice en la barra de estado al abrir** y sigue funcionando con lo que haya en la
-base. Sin ese aviso, el síntoma sería que las fichas de la app móvil salen sin
-imagen y las del sistema anterior salen bien, lo cual apunta a la app móvil, que
-no tiene nada que ver.
+**La dirección es solo la IP y el puerto.** Igual que en la app Android, nunca se
+conecta por IP: se pide siempre `https://schid-servidor:puerto` y ese nombre se
+resuelve a la IP configurada al abrir el socket. Por eso el mismo certificado y
+la misma compilación sirven para las 70 ubicaciones, y un cambio de IP se
+arregla aquí sin tocar certificados.
 
-La cuenta con la que corre puede tener permisos de **solo lectura**: la
-aplicación no ejecuta ni una sentencia de escritura, y conviene que la base lo
-imponga en vez de confiar en ello.
+El token tiene que llevar el rol **`Consulta`**, no el del kiosko. En el
+`appsettings.json` del servidor:
+
+```json
+{
+  "Nombre": "consulta-recepcion",
+  "Token": "...",
+  "Roles": ["Consulta"]
+}
+```
+
+### Confiar en el certificado, una vez por terminal
+
+La validación del certificado se deja en manos de Windows, así que la CA tiene
+que estar en el almacén de raíces de cada PC donde corra la consulta:
+
+```powershell
+Import-Certificate -FilePath schid_ca.crt -CertStoreLocation Cert:\LocalMachine\Root
+```
+
+No se escribió una validación propia a propósito: es la forma más común de
+acabar aceptando cualquier certificado sin enterarse, y aquí no hace falta.
 
 ## Las dos formas de distribuirla
 
@@ -91,7 +130,11 @@ Linux gracias a `EnableWindowsTargeting`.
 - El PDF lleva datos personales. Se escribe en una carpeta temporal propia que
   se borra al cerrar la aplicación, no en Escritorio ni en Descargas. Quien
   quiera conservarlo lo guarda desde el visor, a propósito.
-- La aplicación no escribe nada en la base de datos.
+- La aplicación no escribe nada: solo hace peticiones GET, y el token de
+  consulta no tiene permiso para registrar nada aunque se quisiera.
+- El listado no trae domicilio ni teléfono: una búsqueda por apellido puede
+  devolver doscientas personas, y no hay razón para poner el domicilio de
+  doscientos desconocidos en la pantalla de quien busca a uno.
 - No hay registro de consultas: si más adelante hace falta auditoría de quién
   consultó qué, es una decisión a tomar aparte, con su aviso de privacidad.
 

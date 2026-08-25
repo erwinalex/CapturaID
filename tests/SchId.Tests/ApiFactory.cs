@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using SchId.Api.Data;
 using SchId.Api.Services;
+using SchId.Shared;
 
 namespace SchId.Tests;
 
@@ -59,7 +60,27 @@ public class ApiFactory : WebApplicationFactory<Program>, IDisposable
             services.AddDbContext<SchIdDbContext>(options => options.UseInMemoryDatabase(_nombreBase));
 
             services.RemoveAll<IHostedService>();
+
+            // Las columnas [image] se leen con SQL crudo, que el proveedor en
+            // memoria no soporta. Se sustituye por un doble que las pruebas
+            // pueden sembrar.
+            services.RemoveAll<IImagenesHeredadas>();
+            services.AddSingleton<IImagenesHeredadas>(ImagenesHeredadas);
         });
+    }
+
+    /// <summary>Las imágenes "del sistema anterior" que ven las pruebas.</summary>
+    public ImagenesHeredadasDePrueba ImagenesHeredadas { get; } = new();
+
+    public sealed class ImagenesHeredadasDePrueba : IImagenesHeredadas
+    {
+        private readonly Dictionary<(long, ImageSide), byte[]> _contenido = new();
+
+        public void Poner(long personaId, ImageSide lado, byte[] contenido) =>
+            _contenido[(personaId, lado)] = contenido;
+
+        public Task<byte[]?> LeerAsync(long personaId, ImageSide lado, CancellationToken ct = default) =>
+            Task.FromResult(_contenido.GetValueOrDefault((personaId, lado)));
     }
 
     public HttpClient ClienteCon(string? token)

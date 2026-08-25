@@ -1,15 +1,14 @@
-using SchId.Shared;
-
 namespace SchId.Consulta.Nucleo;
 
 /// <summary>
-/// Un renglón del listado de búsqueda. No trae imágenes: cargarlas para toda
-/// una lista de resultados sería traer megabytes por una búsqueda que casi
-/// siempre termina en una sola persona.
+/// Un renglón del listado de búsqueda. No trae imágenes ni domicilio: cargarlos
+/// para toda una lista sería traer megabytes —y poner el domicilio de doscientos
+/// desconocidos en pantalla— por una búsqueda que casi siempre termina en una
+/// sola persona.
 /// </summary>
 public sealed record ResultadoBusqueda
 {
-    public required long Id { get; init; }
+    public long Id { get; init; }
     public string? Nombre { get; init; }
     public string? Curp { get; init; }
     public string? Nacionalidad { get; init; }
@@ -18,12 +17,13 @@ public sealed record ResultadoBusqueda
 }
 
 /// <summary>
-/// Todo lo que va en la ficha de una persona, ya con las fechas convertidas
-/// desde el TDateTime de Delphi.
+/// Todo lo que va en la ficha de una persona. Las fechas llegan ya convertidas
+/// desde el TDateTime de Delphi: eso lo hace el servidor, que es donde vive
+/// DelphiDateTime y su desfase de dos días.
 /// </summary>
 public sealed record FichaPersona
 {
-    public required long Id { get; init; }
+    public long Id { get; init; }
     public string? Nombre { get; init; }
     public string? Curp { get; init; }
     public string? Direccion { get; init; }
@@ -54,8 +54,3 @@ public enum OrigenImagen
 }
 
 public sealed record ImagenIdentificacion(byte[] Contenido, OrigenImagen Origen, string Descripcion);
-
-internal static class ConversionFechas
-{
-    public static DateTime? Delphi(decimal? valor) => DelphiDateTime.ToDateTime(valor);
-}

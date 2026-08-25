@@ -27,17 +27,20 @@ public class PersonasController : ControllerBase
 {
     private readonly SchIdDbContext _db;
     private readonly IImageStorageService _images;
+    private readonly ResolutorImagenesIne _resolutorImagenes;
     private readonly ImageStorageOptions _imageOptions;
     private readonly ILogger<PersonasController> _logger;
 
     public PersonasController(
         SchIdDbContext db,
         IImageStorageService images,
+        ResolutorImagenesIne resolutorImagenes,
         IOptions<ImageStorageOptions> imageOptions,
         ILogger<PersonasController> logger)
     {
         _db = db;
         _images = images;
+        _resolutorImagenes = resolutorImagenes;
         _imageOptions = imageOptions.Value;
         _logger = logger;
     }
@@ -169,6 +172,92 @@ public class PersonasController : ControllerBase
 
         return Ok(respuesta);
     }
+
+    /// <summary>
+    /// Busca por nombre o por CURP con un solo término: quien atiende no tiene
+    /// por qué decidir de antemano qué está escribiendo.
+    /// </summary>
+    [HttpGet("buscar")]
+    [Authorize(Roles = RolesApi.Consulta)]
+    public async Task<ActionResult<IReadOnlyList<ResultadoBusquedaResponse>>> Buscar(
+        [FromQuery] string q,
+        CancellationToken ct)
+    {
+        var termino = (q ?? "").Trim();
+        if (termino.Length == 0)
+        {
+            return BadRequest("Escribe algo que buscar.");
+        }
+
+        // El término no se registra en el log: es un nombre o un CURP, o sea un
+        // dato personal, y el log no es sitio para eso.
+        var resultados = await _db.Personas
+            .AsNoTracking()
+            .Where(p =>
+                (p.Nombre != null && EF.Functions.Like(p.Nombre, "%" + termino + "%")) ||
+                (p.CURP != null && EF.Functions.Like(p.CURP, "%" + termino + "%")))
+            .OrderBy(p => p.Nombre)
+            .Take(MaximoResultados)
+            .ToListAsync(ct);
+
+        return Ok(resultados.Select(ResultadoBusquedaResponse.DesdeEntidad).ToList());
+    }
+
+    /// <summary>Los datos de una persona por Id, para armar su ficha.</summary>
+    [HttpGet("{id:long}")]
+    [Authorize(Roles = RolesApi.Consulta)]
+    public async Task<ActionResult<PersonaResponse>> Obtener(long id, CancellationToken ct)
+    {
+        var persona = await _db.Personas.AsNoTracking().FirstOrDefaultAsync(p => p.ID == id, ct);
+        if (persona is null)
+        {
+            return NotFound();
+        }
+
+        var respuesta = PersonaResponse.DesdeEntidad(persona);
+        respuesta.TieneImagenFrente = _images.Exists(persona.ID, ImageSide.Frente);
+        respuesta.TieneImagenReverso = _images.Exists(persona.ID, ImageSide.Reverso);
+
+        return Ok(respuesta);
+    }
+
+    /// <summary>
+    /// Entrega una cara de la identificación, venga de donde venga.
+    ///
+    /// Que esto lo sirva el servidor es lo que permite consultar desde cualquier
+    /// terminal: los archivos están en el disco del servidor, y sin este
+    /// endpoint cada PC necesitaría un recurso compartido de Windows apuntando a
+    /// una carpeta llena de imágenes de INE.
+    ///
+    /// La cabecera X-Origen-Imagen dice si salió del archivo o de la columna;
+    /// durante la migración es la forma de ver quién ya está migrado sin entrar
+    /// a la base a mano.
+    /// </summary>
+    [HttpGet("{id:long}/imagen/{lado}")]
+    [Authorize(Roles = RolesApi.Consulta)]
+    public async Task<IActionResult> Imagen(long id, string lado, CancellationToken ct)
+    {
+        if (!Enum.TryParse<ImageSide>(lado, ignoreCase: true, out var cara))
+        {
+            return BadRequest("El lado debe ser 'frente' o 'reverso'.");
+        }
+
+        var imagen = await _resolutorImagenes.ObtenerAsync(id, cara, ct);
+        if (imagen is null)
+        {
+            return NotFound();
+        }
+
+        Response.Headers["X-Origen-Imagen"] = imagen.Origen.ToString();
+        return File(imagen.Contenido, "image/jpeg");
+    }
+
+    /// <summary>
+    /// Tope de resultados. Con la tabla de varios años de un hotel, buscar
+    /// "GARCIA" puede traer miles de renglones; nadie los lee, y traerlos hace
+    /// lenta la consulta para todos.
+    /// </summary>
+    public const int MaximoResultados = 200;
 
     private async Task<byte[]?> LeerImagenAsync(IFormFile? archivo, string nombreCampo, CancellationToken ct)
     {

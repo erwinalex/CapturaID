@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Configuration;
+using SchId.Consulta.Nucleo;
 
 namespace SchId.Consulta;
 
@@ -16,20 +17,26 @@ internal static class Program
                 .AddJsonFile("appsettings.json", optional: false)
                 .Build();
 
-            var cadena = configuracion.GetConnectionString("SchIdDatabase");
-            if (string.IsNullOrWhiteSpace(cadena))
+            var direccion = configuracion["Servidor:Direccion"];
+            var destino = DestinoServidor.Interpretar(direccion);
+            if (destino is null)
             {
-                Fallar("Falta ConnectionStrings:SchIdDatabase en appsettings.json.");
+                Fallar(
+                    "Falta Servidor:Direccion en appsettings.json, o no se entiende.\n\n" +
+                    "Escribe la IP del servidor con su puerto, por ejemplo 192.168.1.226:7443.");
                 return;
             }
 
-            // Si no está configurada, se sigue adelante: las personas capturadas
-            // con el sistema anterior tienen la imagen en la base y su ficha
-            // sale igual. Lo que no se puede es callarlo, porque entonces las
-            // fichas de la app móvil saldrían sin imagen sin explicación.
-            var carpetaImagenes = configuracion["ImageStorage:BasePath"] ?? "";
+            var token = configuracion["Servidor:Token"];
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                Fallar(
+                    "Falta Servidor:Token en appsettings.json.\n\n" +
+                    "Tiene que ser un token con el rol Consulta, no el del kiosko.");
+                return;
+            }
 
-            Application.Run(new VentanaPrincipal(cadena, carpetaImagenes));
+            Application.Run(new VentanaPrincipal(destino, token));
         }
         catch (Exception ex)
         {

@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using SchId.Consulta.Nucleo;
-using SchId.Shared;
 
 namespace SchId.Consulta;
 
@@ -13,10 +12,9 @@ namespace SchId.Consulta;
 /// </summary>
 public sealed class VentanaPrincipal : Form
 {
-    private readonly RepositorioPersonas _repositorio;
-    private readonly ResolutorImagenes _imagenes;
+    private readonly ClienteSchId _cliente;
     private readonly GeneradorFicha _generador = new();
-    private readonly string _carpetaImagenes;
+    private readonly DestinoServidor _destino;
 
     private readonly TextBox _busqueda = new();
     private readonly Button _botonBuscar = new();
@@ -32,13 +30,10 @@ public sealed class VentanaPrincipal : Form
     private readonly string _carpetaTemporal =
         Path.Combine(Path.GetTempPath(), "SchIdConsulta", Guid.NewGuid().ToString("N"));
 
-    public VentanaPrincipal(string cadenaDeConexion, string carpetaImagenes)
+    public VentanaPrincipal(DestinoServidor destino, string token)
     {
-        _repositorio = new RepositorioPersonas(cadenaDeConexion);
-        _carpetaImagenes = carpetaImagenes;
-        _imagenes = new ResolutorImagenes(
-            new ImagenesEnArchivo(carpetaImagenes),
-            new ImagenesEnBaseDeDatos(cadenaDeConexion));
+        _destino = destino;
+        _cliente = new ClienteSchId(destino, token);
 
         Text = "SchId — Consulta de identificaciones";
         Width = 900;
@@ -109,7 +104,8 @@ public sealed class VentanaPrincipal : Form
         _estado.Dock = DockStyle.Bottom;
         _estado.Height = 24;
         _estado.Padding = new Padding(10, 4, 10, 4);
-        _estado.Text = AvisoDeCarpeta() ?? "Escribe un nombre o un CURP y pulsa Buscar.";
+        _estado.Text = $"Servidor {_destino.Host}:{_destino.Puerto}. " +
+            "Escribe un nombre o un CURP y pulsa Buscar.";
 
         Controls.Add(_lista);
         Controls.Add(_estado);
@@ -117,31 +113,6 @@ public sealed class VentanaPrincipal : Form
 
         AcceptButton = _botonBuscar;
         FormClosed += (_, _) => LimpiarTemporales();
-    }
-
-    /// <summary>
-    /// Avisa si la carpeta de imágenes no está donde dice la configuración.
-    ///
-    /// Sin este aviso, el síntoma sería que las fichas de las personas
-    /// capturadas con la app móvil salen sin imagen mientras las del sistema
-    /// anterior salen bien — y eso apunta a la app móvil, que no tiene nada que
-    /// ver.
-    /// </summary>
-    private string? AvisoDeCarpeta()
-    {
-        if (string.IsNullOrWhiteSpace(_carpetaImagenes))
-        {
-            return "Aviso: no hay ImageStorage:BasePath configurado. Solo se verán las imágenes " +
-                "que sigan en la base de datos.";
-        }
-
-        if (!Directory.Exists(_carpetaImagenes))
-        {
-            return $"Aviso: no se encuentra la carpeta de imágenes ({_carpetaImagenes}). " +
-                "Solo se verán las imágenes que sigan en la base de datos.";
-        }
-
-        return null;
     }
 
     private async Task BuscarAsync()
@@ -159,18 +130,13 @@ public sealed class VentanaPrincipal : Form
 
         try
         {
-            var resultados = await _repositorio.BuscarAsync(termino);
+            var resultados = await _cliente.BuscarAsync(termino);
             MostrarResultados(resultados);
         }
-        catch (Exception ex)
+        catch (ErrorDeConsulta ex)
         {
-            _estado.Text = "No se pudo consultar la base de datos.";
-            MessageBox.Show(
-                $"No se pudo consultar la base de datos.\n\n{ex.Message}\n\n" +
-                "Revisa la cadena de conexión en appsettings.json y que el servidor esté disponible.",
-                "SchId Consulta",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error);
+            _estado.Text = "No se pudo consultar.";
+            MessageBox.Show(ex.Message, "SchId Consulta", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
@@ -205,8 +171,8 @@ public sealed class VentanaPrincipal : Form
         _estado.Text = resultados.Count switch
         {
             0 => "Sin resultados.",
-            RepositorioPersonas.MaximoResultados =>
-                $"Se muestran los primeros {RepositorioPersonas.MaximoResultados}. Afina la búsqueda si no está quien buscas.",
+            ClienteSchId.MaximoResultados =>
+                $"Se muestran los primeros {ClienteSchId.MaximoResultados}. Afina la búsqueda si no está quien buscas.",
             1 => "1 resultado.",
             var n => $"{n} resultados."
         };
@@ -235,18 +201,12 @@ public sealed class VentanaPrincipal : Form
 
         try
         {
-            var ficha = await _repositorio.ObtenerAsync(id);
+            var ficha = await _cliente.ObtenerFichaAsync(id);
             if (ficha is null)
             {
                 _estado.Text = "Esa persona ya no está en la base de datos.";
                 return;
             }
-
-            ficha = ficha with
-            {
-                Frente = await _imagenes.ObtenerAsync(id, ImageSide.Frente),
-                Reverso = await _imagenes.ObtenerAsync(id, ImageSide.Reverso)
-            };
 
             var pdf = _generador.Generar(ficha);
 
@@ -259,6 +219,11 @@ public sealed class VentanaPrincipal : Form
             _estado.Text = ficha.Frente is null && ficha.Reverso is null
                 ? "Ficha generada. Esta persona no tiene imágenes ni en archivo ni en la base."
                 : $"Ficha generada: {Describir(ficha)}";
+        }
+        catch (ErrorDeConsulta ex)
+        {
+            _estado.Text = "No se pudo generar la ficha.";
+            MessageBox.Show(ex.Message, "SchId Consulta", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         catch (Exception ex)
         {
@@ -298,6 +263,16 @@ public sealed class VentanaPrincipal : Form
 
     private static string Nombrar(OrigenImagen origen) =>
         origen == OrigenImagen.Archivo ? "archivo" : "la base de datos";
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _cliente.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
 
     private void LimpiarTemporales()
     {

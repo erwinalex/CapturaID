@@ -81,6 +81,11 @@ builder.Services.AddDbContext<SchIdDbContext>(options =>
 builder.Services.Configure<ImageStorageOptions>(builder.Configuration.GetSection("ImageStorage"));
 builder.Services.AddSingleton<IImageStorageService, ImageStorageService>();
 
+// Las imágenes del sistema anterior siguen en columnas [image] que la entidad
+// Persona no mapea, así que se leen con SQL crudo por su propio servicio.
+builder.Services.AddSingleton<IImagenesHeredadas, ImagenesHeredadasSql>();
+builder.Services.AddSingleton<ResolutorImagenesIne>();
+
 builder.Services.Configure<RetentionOptions>(builder.Configuration.GetSection("Retention"));
 builder.Services.AddHostedService<RetentionCleanupService>();
 
