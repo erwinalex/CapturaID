@@ -54,3 +54,25 @@ public enum OrigenImagen
 }
 
 public sealed record ImagenIdentificacion(byte[] Contenido, OrigenImagen Origen, string Descripcion);
+
+/// <summary>
+/// Una estancia registrada por el PMS. La consulta solo las lee.
+/// </summary>
+public sealed record Estancia
+{
+    public long IdEstancia { get; init; }
+    public DateTime? Ingreso { get; init; }
+
+    /// <summary>
+    /// Null cuando la estancia sigue abierta **o** cuando el campo nunca se
+    /// llenó: en la columna se ven igual y desde aquí no se distinguen.
+    /// </summary>
+    public DateTime? Salida { get; init; }
+
+    public DateTime? Deteccion { get; init; }
+
+    /// <summary>Bandera del PMS, tal cual viene.</summary>
+    public int? Hospedado { get; init; }
+
+    public string? TipoAsignacion { get; init; }
+}

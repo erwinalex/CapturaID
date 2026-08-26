@@ -20,7 +20,18 @@ public sealed class VentanaPrincipal : Form
     private readonly Button _botonBuscar = new();
     private readonly Button _botonFicha = new();
     private readonly DataGridView _lista = new();
+    private readonly DataGridView _estancias = new();
+    private readonly Label _tituloEstancias = new();
     private readonly Label _estado = new();
+
+    /// <summary>
+    /// Cancela la carga de estancias en curso cuando cambia la selección.
+    ///
+    /// Sin esto, moverse por la lista con las flechas dispara una petición por
+    /// renglón y las respuestas pueden llegar desordenadas: acabarías viendo las
+    /// estancias de una persona con otra seleccionada, que es peor que no verlas.
+    /// </summary>
+    private CancellationTokenSource? _cargaEstancias;
 
     /// <summary>
     /// Las fichas se escriben aquí y la carpeta se borra al cerrar. Llevan datos
@@ -91,7 +102,11 @@ public sealed class VentanaPrincipal : Form
         _lista.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _lista.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
         _lista.RowHeadersVisible = false;
-        _lista.SelectionChanged += (_, _) => _botonFicha.Enabled = SeleccionActual() is not null;
+        _lista.SelectionChanged += (_, _) =>
+        {
+            _botonFicha.Enabled = SeleccionActual() is not null;
+            _ = CargarEstanciasAsync();
+        };
         // Doble clic saca la ficha: es lo que se espera de una lista.
         _lista.CellDoubleClick += (_, e) =>
         {
@@ -107,7 +122,38 @@ public sealed class VentanaPrincipal : Form
         _estado.Text = $"Servidor {_destino.Host}:{_destino.Puerto}. " +
             "Escribe un nombre o un CURP y pulsa Buscar.";
 
-        Controls.Add(_lista);
+        _estancias.Dock = DockStyle.Fill;
+        _estancias.ReadOnly = true;
+        _estancias.AllowUserToAddRows = false;
+        _estancias.AllowUserToDeleteRows = false;
+        _estancias.AllowUserToResizeRows = false;
+        _estancias.RowHeadersVisible = false;
+        _estancias.MultiSelect = false;
+        _estancias.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+        _estancias.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+
+        _tituloEstancias.Dock = DockStyle.Top;
+        _tituloEstancias.Height = 22;
+        _tituloEstancias.Padding = new Padding(6, 4, 6, 0);
+        _tituloEstancias.Text = "Estancias";
+
+        var panelEstancias = new Panel { Dock = DockStyle.Fill };
+        panelEstancias.Controls.Add(_estancias);
+        panelEstancias.Controls.Add(_tituloEstancias);
+
+        // La lista a la izquierda y las estancias a la derecha, con el divisor
+        // movible: cuántas estancias caben depende del ancho de la pantalla, y
+        // cada quien acomoda.
+        var division = new SplitContainer
+        {
+            Dock = DockStyle.Fill,
+            Orientation = Orientation.Vertical,
+            SplitterDistance = 520
+        };
+        division.Panel1.Controls.Add(_lista);
+        division.Panel2.Controls.Add(panelEstancias);
+
+        Controls.Add(division);
         Controls.Add(_estado);
         Controls.Add(superior);
 
@@ -177,6 +223,88 @@ public sealed class VentanaPrincipal : Form
             var n => $"{n} resultados."
         };
     }
+
+    /// <summary>
+    /// Trae las estancias de quien esté seleccionado.
+    ///
+    /// Antes de pintar se vuelve a comprobar la selección: entre que sale la
+    /// petición y llega la respuesta el usuario pudo haberse movido, y pintar
+    /// entonces sería enseñar las estancias de otra persona.
+    /// </summary>
+    private async Task CargarEstanciasAsync()
+    {
+        _cargaEstancias?.Cancel();
+        _cargaEstancias?.Dispose();
+
+        if (SeleccionActual() is not { } id)
+        {
+            _cargaEstancias = null;
+            _estancias.DataSource = null;
+            _tituloEstancias.Text = "Estancias";
+            return;
+        }
+
+        var cancelacion = new CancellationTokenSource();
+        _cargaEstancias = cancelacion;
+
+        _tituloEstancias.Text = "Estancias — cargando...";
+
+        try
+        {
+            var estancias = await _cliente.EstanciasAsync(id, cancelacion.Token);
+
+            if (cancelacion.IsCancellationRequested || SeleccionActual() != id)
+            {
+                return;
+            }
+
+            MostrarEstancias(estancias);
+        }
+        catch (OperationCanceledException)
+        {
+            // Se movió la selección antes de que llegara: no hay nada que decir.
+        }
+        catch (ErrorDeConsulta ex)
+        {
+            if (!cancelacion.IsCancellationRequested)
+            {
+                // En un panel secundario, un cuadro de diálogo por cada fallo
+                // sería insufrible al moverse por la lista: basta con decirlo
+                // en el título.
+                _estancias.DataSource = null;
+                _tituloEstancias.Text = "Estancias — no se pudieron cargar";
+                _estado.Text = ex.Message.Split('\n')[0];
+            }
+        }
+    }
+
+    private void MostrarEstancias(IReadOnlyList<Estancia> estancias)
+    {
+        _estancias.DataSource = estancias
+            .Select(e => new
+            {
+                Ingreso = Fecha(e.Ingreso),
+                Salida = e.Salida is null ? "—" : Fecha(e.Salida),
+                Hospedado = e.Hospedado switch { 1 => "Sí", 0 => "No", _ => "" },
+                Tipo = e.TipoAsignacion ?? ""
+            })
+            .ToList();
+
+        _tituloEstancias.Text = estancias.Count switch
+        {
+            0 => "Estancias — ninguna registrada",
+            ClienteSchId.MaximoEstancias => $"Estancias — últimas {ClienteSchId.MaximoEstancias}",
+            1 => "Estancias — 1",
+            var n => $"Estancias — {n}"
+        };
+    }
+
+    /// <summary>
+    /// Con hora, porque en un hotel importa: dos estancias del mismo día se
+    /// distinguen por la hora de entrada, no por la fecha.
+    /// </summary>
+    private static string Fecha(DateTime? valor) =>
+        valor?.ToString("yyyy-MM-dd HH:mm") ?? "—";
 
     private long? SeleccionActual()
     {
@@ -268,6 +396,8 @@ public sealed class VentanaPrincipal : Form
     {
         if (disposing)
         {
+            _cargaEstancias?.Cancel();
+            _cargaEstancias?.Dispose();
             _cliente.Dispose();
         }
 

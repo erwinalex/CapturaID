@@ -27,6 +27,22 @@ public static class DelphiDateTime
         return Epoch.AddDays((double)value.Value);
     }
 
+    /// <summary>
+    /// Como <see cref="ToDateTime"/>, pero descartando lo que no puede ser una
+    /// fecha real.
+    ///
+    /// Un 0 —o basura cercana a 0— en la columna numeric se convierte en la
+    /// época de Delphi, 1899-12-30. En estos datos eso no significa "30 de
+    /// diciembre de 1899": significa que el campo nunca se llenó. Mostrarlo tal
+    /// cual pondría fechas absurdas en pantalla y en los PDF, y cualquier
+    /// comparación por antigüedad se iría al principio de los tiempos.
+    /// </summary>
+    public static DateTime? ToDateTimeSiEsReal(decimal? value)
+    {
+        var fecha = ToDateTime(value);
+        return fecha is null || fecha.Value.Year < 1990 ? null : fecha;
+    }
+
     public static decimal? FromDateTime(DateTime? value)
     {
         if (value is null)

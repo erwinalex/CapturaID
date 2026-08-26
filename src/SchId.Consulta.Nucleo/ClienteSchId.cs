@@ -35,6 +35,9 @@ public sealed class ClienteSchId : IDisposable
     /// </summary>
     public const int MaximoResultados = 200;
 
+    /// <summary>El tope de estancias que aplica el servidor, para el mismo aviso.</summary>
+    public const int MaximoEstancias = 100;
+
     private readonly HttpClient _http;
     private readonly DestinoServidor _destino;
 
@@ -129,6 +132,18 @@ public sealed class ClienteSchId : IDisposable
             Frente = await ImagenAsync(id, "frente", ct),
             Reverso = await ImagenAsync(id, "reverso", ct)
         };
+    }
+
+    /// <summary>
+    /// Las estancias de una persona, de la más reciente a la más antigua.
+    /// </summary>
+    public async Task<IReadOnlyList<Estancia>> EstanciasAsync(long id, CancellationToken ct = default)
+    {
+        using var respuesta = await EnviarAsync($"api/personas/{id}/estancias", ct);
+        Comprobar(respuesta);
+
+        return await respuesta.Content.ReadFromJsonAsync<List<Estancia>>(cancellationToken: ct)
+            ?? new List<Estancia>();
     }
 
     /// <summary>

@@ -35,6 +35,7 @@ Usa tres endpoints, todos con el rol `Consulta`:
 | `GET /api/personas/buscar?q=` | El listado, por nombre o CURP |
 | `GET /api/personas/{id}` | Los datos de la ficha |
 | `GET /api/personas/{id}/imagen/{frente\|reverso}` | Cada cara de la identificación |
+| `GET /api/personas/{id}/estancias` | Las estancias de esa persona |
 
 ## Las imágenes están en dos sitios
 
@@ -59,6 +60,33 @@ identificación.
 La respuesta trae la cabecera `X-Origen-Imagen`, y la ficha dice de dónde salió
 cada imagen. Durante la transición eso permite ver qué personas ya están
 migradas sin entrar a la base a mano.
+
+## El panel de estancias
+
+A la derecha de la lista, con el divisor movible. Muestra las estancias de quien
+esté seleccionado, de la más reciente a la más antigua, hasta 100 — un huésped
+habitual de años puede tener cientos y el panel solo enseña las últimas.
+
+`dbo.Estancias` es del PMS: la API **solo la lee**, nunca escribe ahí.
+
+Dos detalles que no son evidentes:
+
+- **Una salida en cero no es una fecha.** En estas columnas `numeric`, un 0 se
+  convierte en la época de Delphi (1899-12-30), y eso no significa que alguien
+  saliera en 1899: significa que el campo nunca se llenó. Se muestra como `—`.
+  Es la misma regla que ya aplicaba el job de retención, ahora compartida en
+  `DelphiDateTime.ToDateTimeSiEsReal`.
+- **Por eso una salida vacía es ambigua**: puede ser una estancia todavía
+  abierta o un campo que nadie llenó. En la columna se ven igual y desde aquí no
+  se distinguen, así que el panel no afirma cuál de las dos es.
+
+La bandera `Hospedado` se muestra tal como viene del PMS (`1` → Sí, `0` → No),
+sin interpretarla más allá de eso.
+
+Moverse por la lista con las flechas dispara una petición por renglón, así que
+cada carga cancela la anterior y se vuelve a comprobar la selección antes de
+pintar. Sin eso, una respuesta lenta podía acabar mostrando las estancias de una
+persona con otra ya seleccionada.
 
 ## Configuración
 

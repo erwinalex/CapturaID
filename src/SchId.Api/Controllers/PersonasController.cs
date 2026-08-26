@@ -253,6 +253,37 @@ public class PersonasController : ControllerBase
     }
 
     /// <summary>
+    /// Las estancias de una persona, de la más reciente a la más antigua.
+    ///
+    /// Solo lectura: las estancias las escribe el PMS, esta API nunca las toca.
+    /// Se exponen para poder ver, junto a la identificación, cuándo estuvo esa
+    /// persona — que es la pregunta que sigue naturalmente a "¿quién es?".
+    /// </summary>
+    [HttpGet("{id:long}/estancias")]
+    [Authorize(Roles = RolesApi.Consulta)]
+    public async Task<ActionResult<IReadOnlyList<EstanciaResponse>>> Estancias(long id, CancellationToken ct)
+    {
+        var estancias = await _db.Estancias
+            .AsNoTracking()
+            .Where(e => e.IdPersona == id)
+            // Por FIngreso descendente: lo último es lo que casi siempre se
+            // busca. Se ordena por el número crudo, no por la fecha convertida,
+            // para que el ordenamiento lo haga SQL Server y no la memoria.
+            .OrderByDescending(e => e.FIngreso)
+            .ThenByDescending(e => e.IdEstancia)
+            .Take(MaximoEstancias)
+            .ToListAsync(ct);
+
+        return Ok(estancias.Select(EstanciaResponse.DesdeEntidad).ToList());
+    }
+
+    /// <summary>
+    /// Tope de estancias. Un huésped habitual de años puede tener cientos, y el
+    /// panel solo enseña las últimas.
+    /// </summary>
+    public const int MaximoEstancias = 100;
+
+    /// <summary>
     /// Tope de resultados. Con la tabla de varios años de un hotel, buscar
     /// "GARCIA" puede traer miles de renglones; nadie los lee, y traerlos hace
     /// lenta la consulta para todos.

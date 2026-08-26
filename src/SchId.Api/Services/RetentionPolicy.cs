@@ -38,12 +38,10 @@ public static class RetentionPolicy
 
         foreach (var valor in new[] { fechaAlta, ultimaModificacion, maxFIngreso, maxFSalida })
         {
-            var fecha = DelphiDateTime.ToDateTime(valor);
-
-            // Un 0 (o basura cercana a 0) en la columna numeric se convierte en
-            // la época de Delphi, 1899-12-30. Eso no es una fecha real de
-            // actividad, es un campo que nunca se llenó: ignorarlo.
-            if (fecha is null || fecha.Value.Year < 1990)
+            // Descarta los ceros de la columna numeric, que no son fechas de
+            // actividad sino campos que nunca se llenaron.
+            var fecha = DelphiDateTime.ToDateTimeSiEsReal(valor);
+            if (fecha is null)
             {
                 continue;
             }
