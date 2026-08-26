@@ -218,4 +218,41 @@ public class ConsultaEndpointTests : IClassFixture<ApiFactory>
         Assert.Equal("ColumnaDeBaseDeDatos", respuesta.Headers.GetValues("X-Origen-Imagen").Single());
         Assert.Equal(jpeg, await respuesta.Content.ReadAsByteArrayAsync());
     }
+
+    /// <summary>
+    /// El caso real: la imagen del sistema anterior venía con una cabecera del
+    /// BLOB por delante, así que no empezaba por la firma del formato y el
+    /// visor no la reconocía. El servidor la entrega ya sin la cabecera.
+    /// </summary>
+    [Fact]
+    public async Task Una_imagen_con_cabecera_del_BLOB_se_sirve_sin_ella()
+    {
+        var jpeg = new byte[] { 0xFF, 0xD8, 0xFF, 0xE0, 7, 7, 7, 7 };
+        var cabecera = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+        _api.ImagenesHeredadas.Poner(200, ImageSide.Frente, cabecera.Concat(jpeg).ToArray());
+
+        var cliente = _api.ClienteCon(ApiFactory.TokenConsulta);
+        var respuesta = await cliente.GetAsync("/api/personas/200/imagen/frente");
+
+        Assert.Equal(HttpStatusCode.OK, respuesta.StatusCode);
+        Assert.Equal(jpeg, await respuesta.Content.ReadAsByteArrayAsync());
+        Assert.Equal("JPEG", respuesta.Headers.GetValues("X-Formato-Imagen").Single());
+    }
+
+    /// <summary>
+    /// Anunciar image/jpeg para algo que no lo es hace que el visor se niegue a
+    /// abrirlo sin decir por qué. El tipo declarado es el real.
+    /// </summary>
+    [Fact]
+    public async Task El_tipo_declarado_corresponde_al_formato_real()
+    {
+        var png = new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3 };
+        _api.ImagenesHeredadas.Poner(200, ImageSide.Reverso, png);
+
+        var cliente = _api.ClienteCon(ApiFactory.TokenConsulta);
+        var respuesta = await cliente.GetAsync("/api/personas/200/imagen/reverso");
+
+        Assert.Equal("image/png", respuesta.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("PNG", respuesta.Headers.GetValues("X-Formato-Imagen").Single());
+    }
 }

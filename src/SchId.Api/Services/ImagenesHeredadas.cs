@@ -51,7 +51,7 @@ public enum OrigenImagen
     ColumnaDeBaseDeDatos
 }
 
-public sealed record ImagenLocalizada(byte[] Contenido, OrigenImagen Origen);
+public sealed record ImagenLocalizada(byte[] Contenido, OrigenImagen Origen, TipoImagen Tipo);
 
 /// <summary>
 /// Busca la imagen de una identificación donde toque.
@@ -74,11 +74,16 @@ public sealed class ResolutorImagenesIne
 {
     private readonly IImageStorageService _archivos;
     private readonly IImagenesHeredadas _heredadas;
+    private readonly ILogger<ResolutorImagenesIne>? _registro;
 
-    public ResolutorImagenesIne(IImageStorageService archivos, IImagenesHeredadas heredadas)
+    public ResolutorImagenesIne(
+        IImageStorageService archivos,
+        IImagenesHeredadas heredadas,
+        ILogger<ResolutorImagenesIne>? registro = null)
     {
         _archivos = archivos;
         _heredadas = heredadas;
+        _registro = registro;
     }
 
     public async Task<ImagenLocalizada?> ObtenerAsync(long personaId, ImageSide lado, CancellationToken ct = default)
@@ -95,7 +100,7 @@ public sealed class ResolutorImagenesIne
                 // una imagen: mejor caer a la columna que devolver nada.
                 if (contenido.Length > 0)
                 {
-                    return new ImagenLocalizada(contenido, OrigenImagen.Archivo);
+                    return Normalizar(personaId, lado, contenido, OrigenImagen.Archivo);
                 }
             }
             catch (IOException)
@@ -107,7 +112,48 @@ public sealed class ResolutorImagenesIne
 
         var deColumna = await _heredadas.LeerAsync(personaId, lado, ct);
         return deColumna is { Length: > 0 }
-            ? new ImagenLocalizada(deColumna, OrigenImagen.ColumnaDeBaseDeDatos)
+            ? Normalizar(personaId, lado, deColumna, OrigenImagen.ColumnaDeBaseDeDatos)
             : null;
+    }
+
+    /// <summary>
+    /// Quita la cabecera del BLOB si la trae, y deja constancia del formato.
+    ///
+    /// Las imágenes del sistema anterior vienen de campos BLOB de Paradox, donde
+    /// es habitual que la imagen no empiece en el byte cero. Se normaliza aquí,
+    /// en el servidor, para que quien consulte reciba una imagen y no un blob
+    /// con envoltorio — y para que la cabecera no haya que entenderla en cada
+    /// cliente por separado.
+    ///
+    /// Un formato que no se reconoce no se descarta: se entrega tal cual, y el
+    /// aviso queda en el log. Es preferible que la ficha muestre qué había a que
+    /// el servidor decida que no era una imagen.
+    /// </summary>
+    private ImagenLocalizada Normalizar(long personaId, ImageSide lado, byte[] contenido, OrigenImagen origen)
+    {
+        var detectada = FormatoImagen.Detectar(contenido);
+
+        if (!detectada.Encontrada)
+        {
+            _registro?.LogWarning(
+                "Imagen {Lado} de la persona {Persona}: no se reconoce el formato ({Bytes} bytes). " +
+                "Se entrega tal cual.",
+                lado, personaId, contenido.Length);
+
+            return new ImagenLocalizada(contenido, origen, TipoImagen.Desconocido);
+        }
+
+        if (detectada.ConCabecera)
+        {
+            _registro?.LogInformation(
+                "Imagen {Lado} de la persona {Persona}: {Formato} con {Cabecera} bytes de cabecera " +
+                "por delante; se entrega sin ella.",
+                lado, personaId, FormatoImagen.Nombre(detectada.Tipo), detectada.Desplazamiento);
+
+            return new ImagenLocalizada(
+                contenido[detectada.Desplazamiento..], origen, detectada.Tipo);
+        }
+
+        return new ImagenLocalizada(contenido, origen, detectada.Tipo);
     }
 }

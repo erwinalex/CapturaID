@@ -207,6 +207,39 @@ static async Task<long?> ExtraerImagenAsync(
     await using (var stream = reader.GetStream(1))
     await using (var file = File.Create(path))
     {
+        // Los BLOB del sistema anterior pueden traer una cabecera antes de los
+        // datos de la imagen (ver FormatoImagen). Copiarla al archivo dejaría un
+        // .jpg que ningún visor abre — y el problema pasaría inadvertido hasta
+        // que alguien consultara esa ficha meses después.
+        //
+        // Se leen los primeros bytes para mirar, y el resto se sigue copiando en
+        // flujo: no se carga la imagen entera en memoria.
+        var principio = new byte[FormatoImagen.MaximoDesplazamiento];
+        var leidos = await stream.ReadAtLeastAsync(principio, principio.Length, throwOnEndOfStream: false);
+
+        var detectada = FormatoImagen.Detectar(principio.AsSpan(0, leidos));
+        var inicio = detectada.ConCabecera ? detectada.Desplazamiento : 0;
+
+        if (detectada.ConCabecera)
+        {
+            Console.WriteLine(
+                $"  {columna}: {FormatoImagen.Nombre(detectada.Tipo)} con {inicio} bytes de cabecera; se omiten.");
+        }
+        else if (detectada.Encontrada && detectada.Tipo != TipoImagen.Jpeg)
+        {
+            // El archivo se llama .jpg lo quiera o no: así lo calcula
+            // ImagePathHelper y así lo busca la API. Decirlo es lo único
+            // honesto que se puede hacer aquí.
+            Console.WriteLine(
+                $"  AVISO {columna}: la imagen es {FormatoImagen.Nombre(detectada.Tipo)}, no JPEG, " +
+                "y el archivo se llamará .jpg de todos modos.");
+        }
+        else if (!detectada.Encontrada)
+        {
+            Console.WriteLine($"  AVISO {columna}: no se reconoce el formato de la imagen.");
+        }
+
+        await file.WriteAsync(principio.AsMemory(inicio, leidos - inicio));
         await stream.CopyToAsync(file);
     }
 

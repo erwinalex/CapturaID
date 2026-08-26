@@ -292,6 +292,55 @@ public class GeneradorFichaTests
         Assert.Contains("PELJ740115HDFRPN09", texto);
     }
 
+    /// <summary>
+    /// "No se pudo leer" obliga a ir a la base a mirar los bytes a mano. El
+    /// mensaje tiene que decir qué había, que es lo que permite decidir si hay
+    /// que convertir las imágenes del sistema anterior.
+    /// </summary>
+    [Fact]
+    public void Un_formato_que_no_se_puede_incrustar_se_nombra()
+    {
+        var gif = new byte[] { 0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 2, 3, 4 };
+
+        var motivo = GeneradorFicha.Explicar(
+            SchId.Shared.FormatoImagen.Detectar(gif), gif, new Exception("Unsupported image format."));
+
+        Assert.Contains("GIF", motivo);
+        Assert.Contains("JPEG", motivo);
+    }
+
+    /// <summary>
+    /// Si no se reconoce nada, se enseñan los primeros bytes: es el dato con el
+    /// que se puede identificar qué guardó el sistema anterior.
+    /// </summary>
+    [Fact]
+    public void Un_formato_desconocido_muestra_los_primeros_bytes()
+    {
+        var basura = new byte[] { 0x0A, 0x1B, 0x2C, 0x3D, 0x4E, 0x5F, 0x60, 0x71, 0x82 };
+
+        var motivo = GeneradorFicha.Explicar(
+            SchId.Shared.FormatoImagen.Detectar(basura), basura, new Exception("x"));
+
+        Assert.Contains("0A 1B 2C 3D", motivo);
+        Assert.Contains("9 bytes", motivo);
+    }
+
+    /// <summary>
+    /// Una imagen con cabecera del BLOB delante tiene que dibujarse igual: el
+    /// generador se la salta antes de decodificar.
+    /// </summary>
+    [Fact]
+    public void Una_imagen_con_cabecera_se_dibuja_igual()
+    {
+        var conCabecera = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }.Concat(JpegDePrueba()).ToArray();
+
+        var sin = new GeneradorFicha().Generar(Ficha());
+        var con = new GeneradorFicha().Generar(Ficha(
+            frente: new ImagenIdentificacion(conCabecera, OrigenImagen.ColumnaDeBaseDeDatos, "columna")));
+
+        Assert.True(con.Length > sin.Length, "la imagen con cabecera debería haberse incrustado");
+    }
+
     private static int ContarPaginas(byte[] pdf)
     {
         using var flujo = new MemoryStream(pdf);

@@ -249,7 +249,22 @@ public class PersonasController : ControllerBase
         }
 
         Response.Headers["X-Origen-Imagen"] = imagen.Origen.ToString();
-        return File(imagen.Contenido, "image/jpeg");
+        Response.Headers["X-Formato-Imagen"] = FormatoImagen.Nombre(imagen.Tipo);
+
+        // Se declara el tipo real. Las del sistema anterior no siempre son JPEG,
+        // y anunciar image/jpeg para un BMP haría que el navegador o el visor de
+        // turno se negara a abrirlo sin decir por qué.
+        var contentType = imagen.Tipo switch
+        {
+            TipoImagen.Png => "image/png",
+            TipoImagen.Bmp => "image/bmp",
+            TipoImagen.Gif => "image/gif",
+            TipoImagen.Tiff => "image/tiff",
+            TipoImagen.Jpeg => "image/jpeg",
+            _ => "application/octet-stream"
+        };
+
+        return File(imagen.Contenido, contentType);
     }
 
     /// <summary>

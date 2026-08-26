@@ -1,5 +1,6 @@
 using PdfSharp.Drawing;
 using PdfSharp.Pdf;
+using SchId.Shared;
 
 namespace SchId.Consulta.Nucleo;
 
@@ -175,16 +176,25 @@ public sealed class GeneradorFicha
             return;
         }
 
+        // Las imágenes del sistema anterior pueden traer una cabecera del BLOB
+        // de Paradox antes de los datos. Ver FormatoImagen.
+        var detectada = FormatoImagen.Detectar(imagen.Contenido);
+        var bytes = FormatoImagen.SinCabecera(imagen.Contenido).ToArray();
+
         XImage? mapa = null;
+        string? problema = null;
+
         try
         {
-            mapa = XImage.FromStream(new MemoryStream(imagen.Contenido));
+            mapa = XImage.FromStream(new MemoryStream(bytes));
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Un JPEG corrupto en la base no debe impedir imprimir la ficha con
-            // el resto de los datos, que es justamente lo que se necesita
-            // cuando algo salió mal con la imagen.
+            // Una imagen ilegible no debe impedir imprimir la ficha con el resto
+            // de los datos, que es justamente lo que se necesita cuando algo
+            // salió mal con la imagen. Pero el motivo tiene que decirse: "no se
+            // pudo leer" no permite arreglar nada.
+            problema = Explicar(detectada, imagen.Contenido, ex);
         }
 
         var alto = mapa is null ? 18 : AnchoImagen * mapa.PixelHeight / mapa.PixelWidth;
@@ -195,7 +205,7 @@ public sealed class GeneradorFicha
 
         if (mapa is null)
         {
-            hoja.Lienzo.DrawString("(la imagen no se pudo leer)", pie, XBrushes.Red, new XPoint(Margen, hoja.Y));
+            hoja.Lienzo.DrawString(problema!, pie, XBrushes.Red, new XPoint(Margen, hoja.Y));
             hoja.Y += 18;
         }
         else
@@ -208,6 +218,32 @@ public sealed class GeneradorFicha
         // persona ya está migrada sin entrar a la base a mano.
         hoja.Lienzo.DrawString(imagen.Descripcion, pie, XBrushes.Gray, new XPoint(Margen, hoja.Y));
         hoja.Y += 24;
+    }
+
+    /// <summary>
+    /// Explica por qué no se pudo dibujar una imagen, en términos que permitan
+    /// hacer algo al respecto.
+    ///
+    /// Decir "no se pudo leer" obliga a ir a la base a mirar los bytes a mano.
+    /// Decir el formato —o los primeros bytes cuando no se reconoce ninguno—
+    /// dice de una vez si hay que convertir las imágenes del sistema anterior o
+    /// si lo que hay guardado no es una imagen.
+    /// </summary>
+    internal static string Explicar(ImagenDetectada detectada, byte[] contenido, Exception ex)
+    {
+        if (detectada.Tipo is TipoImagen.Gif or TipoImagen.Tiff)
+        {
+            return $"(imagen en formato {FormatoImagen.Nombre(detectada.Tipo)}, que no se puede " +
+                "incrustar en un PDF; hay que convertirla a JPEG)";
+        }
+
+        if (!detectada.Encontrada)
+        {
+            var primeros = string.Join(" ", contenido.Take(8).Select(b => b.ToString("X2")));
+            return $"(no se reconoce el formato; {contenido.Length} bytes que empiezan por {primeros})";
+        }
+
+        return $"(imagen {FormatoImagen.Nombre(detectada.Tipo)} dañada: {ex.Message})";
     }
 
     /// <summary>
