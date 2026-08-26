@@ -147,6 +147,11 @@ if (hayHttps)
         _ = AutoPruebaTls.ReportarAsync(app.Configuration, app.Logger));
 }
 
+// Y la base: mejor enterarse al arrancar que cuando alguien busca en el
+// mostrador. Ver DiagnosticoBaseDeDatos.
+app.Lifetime.ApplicationStarted.Register(() =>
+    _ = DiagnosticoBaseDeDatos.ReportarAsync(app.Services, app.Logger));
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
