@@ -88,6 +88,21 @@ cada carga cancela la anterior y se vuelve a comprobar la selección antes de
 pintar. Sin eso, una respuesta lenta podía acabar mostrando las estancias de una
 persona con otra ya seleccionada.
 
+### En el PDF
+
+La ficha también lleva la tabla de estancias, en el mismo orden. Va al final a
+propósito: lo primero de una ficha de identificación es quién es y cómo se ve su
+identificación, así que quien imprima solo la primera hoja se lleva eso.
+
+Si la tabla no cabe entera se parte, y el encabezado se repite en la página
+siguiente — una tabla continuada sin sus títulos son cuatro columnas de fechas
+sin saber cuál es la entrada y cuál la salida. Y no se empieza la tabla si solo
+caben uno o dos renglones al final de una hoja: se pasa entera a la siguiente.
+
+El pie con la fecha de generación y el aviso de datos personales sale en
+**todas** las páginas: una hoja suelta sin esa advertencia es justo lo que no
+conviene que circule.
+
 ## Configuración
 
 `appsettings.json`, junto al ejecutable:

@@ -47,10 +47,12 @@ public sealed class GeneradorFicha
         DibujarImagen(hoja, "Frente", ficha.Frente, etiqueta, pie);
         DibujarImagen(hoja, "Reverso", ficha.Reverso, etiqueta, pie);
 
+        DibujarEstancias(hoja, ficha.Estancias, etiqueta, valor, pie);
+
         hoja.Cerrar();
 
         var momento = generadaEl ?? DateTime.Now;
-        foreach (var pagina in documento.Pages.OfType<PdfPage>())
+        foreach (var pagina in Paginas(documento))
         {
             using var lienzo = XGraphics.FromPdfPage(pagina);
             lienzo.DrawString(
@@ -63,6 +65,22 @@ public sealed class GeneradorFicha
         using var memoria = new MemoryStream();
         documento.Save(memoria);
         return memoria.ToArray();
+    }
+
+    /// <summary>
+    /// Recorre las páginas por índice.
+    ///
+    /// No con LINQ: PdfPages expone la colección por la interfaz **no
+    /// genérica**, así que un `OfType&lt;PdfPage&gt;()` compila, no lanza nada y
+    /// devuelve cero elementos. El pie de página estuvo ausente de todas las
+    /// fichas por eso, sin un solo error que lo delatara.
+    /// </summary>
+    private static IEnumerable<PdfPage> Paginas(PdfDocument documento)
+    {
+        for (var i = 0; i < documento.PageCount; i++)
+        {
+            yield return documento.Pages[i];
+        }
     }
 
     /// <summary>
@@ -193,6 +211,116 @@ public sealed class GeneradorFicha
     }
 
     /// <summary>
+    /// La tabla de estancias, de la más reciente a la más antigua.
+    ///
+    /// Va al final a propósito: lo primero de una ficha de identificación es
+    /// quién es y cómo se ve su identificación. Si alguien imprime solo la
+    /// primera hoja, eso es lo que se lleva.
+    /// </summary>
+    private static void DibujarEstancias(
+        Hoja hoja,
+        IReadOnlyList<Estancia> estancias,
+        XFont etiqueta,
+        XFont valor,
+        XFont pie)
+    {
+        hoja.Y += 6;
+
+        // Se exige sitio para el título, el encabezado y unos cuantos renglones
+        // antes de empezar. Si solo cabe uno, la tabla arranca al final de una
+        // hoja y sigue en la otra: se lee peor que empezarla entera en la
+        // siguiente.
+        var minimo = 16 + 16 + AltoRenglonEstancia * Math.Min(estancias.Count, 3);
+        hoja.AsegurarEspacio(minimo);
+
+        hoja.Lienzo.DrawString(
+            estancias.Count == 0 ? "Estancias" : $"Estancias ({estancias.Count})",
+            etiqueta,
+            XBrushes.Gray,
+            new XPoint(Margen, hoja.Y));
+        hoja.Y += 16;
+
+        if (estancias.Count == 0)
+        {
+            hoja.Lienzo.DrawString("(ninguna registrada)", pie, XBrushes.Gray, new XPoint(Margen, hoja.Y));
+            hoja.Y += 18;
+            return;
+        }
+
+        DibujarEncabezadoEstancias(hoja, etiqueta);
+
+        foreach (var estancia in estancias)
+        {
+            // Si el renglón cae en la página siguiente, el encabezado se repite:
+            // una tabla que continúa sin sus títulos son cuatro columnas de
+            // fechas sin saber cuál es la entrada y cuál la salida.
+            if (hoja.AsegurarEspacio(AltoRenglonEstancia))
+            {
+                DibujarEncabezadoEstancias(hoja, etiqueta);
+            }
+
+            var columnas = new[]
+            {
+                FechaConHora(estancia.Ingreso),
+                FechaConHora(estancia.Salida),
+                estancia.Hospedado switch { 1 => "Sí", 0 => "No", _ => "—" },
+                string.IsNullOrWhiteSpace(estancia.TipoAsignacion) ? "—" : estancia.TipoAsignacion!.Trim()
+            };
+
+            for (var i = 0; i < ColumnasEstancias.Length; i++)
+            {
+                hoja.Lienzo.DrawString(
+                    columnas[i], valor, XBrushes.Black,
+                    new XPoint(Margen + ColumnasEstancias[i].X, hoja.Y));
+            }
+
+            hoja.Y += AltoRenglonEstancia;
+        }
+
+        if (estancias.Count == TopeEstancias)
+        {
+            hoja.Y += 4;
+            hoja.Lienzo.DrawString(
+                $"Se muestran las últimas {TopeEstancias} estancias.",
+                pie, XBrushes.Gray, new XPoint(Margen, hoja.Y));
+            hoja.Y += 14;
+        }
+    }
+
+    private static void DibujarEncabezadoEstancias(Hoja hoja, XFont etiqueta)
+    {
+        foreach (var (titulo, x) in ColumnasEstancias)
+        {
+            hoja.Lienzo.DrawString(titulo, etiqueta, XBrushes.Gray, new XPoint(Margen + x, hoja.Y));
+        }
+
+        hoja.Y += 4;
+        hoja.Lienzo.DrawLine(XPens.LightGray, Margen, hoja.Y, hoja.Ancho - Margen, hoja.Y);
+        hoja.Y += 12;
+    }
+
+    /// <summary>
+    /// Con hora: en un hotel, dos estancias del mismo día se distinguen por la
+    /// hora de entrada. (FIngreso y FSalida son numeric(18,8), así que la hora
+    /// sí es fiable ahí — no como FechaAlta, que solo lleva un decimal.)
+    /// </summary>
+    private static string FechaConHora(DateTime? valor) =>
+        valor?.ToString("yyyy-MM-dd HH:mm") ?? "—";
+
+    private const double AltoRenglonEstancia = 16;
+
+    /// <summary>Tope que aplica la API; solo se usa para avisar si se alcanzó.</summary>
+    private const int TopeEstancias = 100;
+
+    private static readonly (string Titulo, double X)[] ColumnasEstancias =
+    {
+        ("Ingreso", 0),
+        ("Salida", 130),
+        ("Hospedado", 260),
+        ("Tipo", 340)
+    };
+
+    /// <summary>
     /// La hoja sobre la que se va dibujando, con el salto de página resuelto.
     ///
     /// Sin esto, una persona con domicilio largo y dos imágenes se sale por
@@ -220,17 +348,19 @@ public sealed class GeneradorFicha
         /// <summary>Deja sitio para el pie de página.</summary>
         private double Fondo => Pagina.Height.Point - Margen - 20;
 
-        public void AsegurarEspacio(double alto)
+        /// <returns>true si hubo que empezar una página nueva.</returns>
+        public bool AsegurarEspacio(double alto)
         {
             if (Y + alto <= Fondo)
             {
-                return;
+                return false;
             }
 
             Lienzo.Dispose();
             Pagina = _documento.AddPage();
             Lienzo = XGraphics.FromPdfPage(Pagina);
             Y = Margen;
+            return true;
         }
 
         /// <summary>

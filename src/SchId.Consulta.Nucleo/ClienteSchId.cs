@@ -130,7 +130,8 @@ public sealed class ClienteSchId : IDisposable
         return datos with
         {
             Frente = await ImagenAsync(id, "frente", ct),
-            Reverso = await ImagenAsync(id, "reverso", ct)
+            Reverso = await ImagenAsync(id, "reverso", ct),
+            Estancias = await EstanciasAsync(id, ct)
         };
     }
 

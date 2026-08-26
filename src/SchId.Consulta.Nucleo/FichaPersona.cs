@@ -37,6 +37,9 @@ public sealed record FichaPersona
 
     public ImagenIdentificacion? Frente { get; init; }
     public ImagenIdentificacion? Reverso { get; init; }
+
+    /// <summary>De la más reciente a la más antigua, como las entrega la API.</summary>
+    public IReadOnlyList<Estancia> Estancias { get; init; } = Array.Empty<Estancia>();
 }
 
 /// <summary>

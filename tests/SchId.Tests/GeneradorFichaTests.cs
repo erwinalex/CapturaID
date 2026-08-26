@@ -167,6 +167,131 @@ public class GeneradorFichaTests
         Assert.True(ContarPaginas(pdf) > 1, "debería haberse agregado una segunda página");
     }
 
+    private static Estancia Estancia(long id, DateTime? ingreso, DateTime? salida, int? hospedado = 0) =>
+        new() { IdEstancia = id, Ingreso = ingreso, Salida = salida, Hospedado = hospedado, TipoAsignacion = "NORMAL" };
+
+    /// <summary>
+    /// La ficha con estancias tiene que pesar más que la misma sin ellas: si el
+    /// bloque no se dibujara, el PDF saldría idéntico y la prueba no lo notaría.
+    /// </summary>
+    [Fact]
+    public void Las_estancias_se_dibujan_en_la_ficha()
+    {
+        var sin = new GeneradorFicha().Generar(Ficha());
+        var con = new GeneradorFicha().Generar(Ficha() with
+        {
+            Estancias = new[]
+            {
+                Estancia(2, new DateTime(2026, 1, 10, 15, 30, 0), null, hospedado: 1),
+                Estancia(1, new DateTime(2025, 6, 1, 14, 0, 0), new DateTime(2025, 6, 3, 11, 0, 0))
+            }
+        });
+
+        Assert.True(EsPdf(con));
+        Assert.True(con.Length > sin.Length, "el PDF con estancias debería pesar más");
+    }
+
+    [Fact]
+    public void Sin_estancias_la_ficha_sale_igual()
+    {
+        var pdf = new GeneradorFicha().Generar(Ficha());
+
+        Assert.True(EsPdf(pdf));
+    }
+
+    /// <summary>
+    /// Muchas estancias no caben en una hoja. Si no hubiera salto de página, la
+    /// tabla se saldría por abajo y se perderían las más antiguas.
+    /// </summary>
+    [Fact]
+    public void Una_tabla_larga_de_estancias_salta_de_pagina()
+    {
+        var muchas = Enumerable.Range(1, 60)
+            .Select(i => Estancia(i, new DateTime(2025, 1, 1).AddDays(i), new DateTime(2025, 1, 2).AddDays(i)))
+            .ToArray();
+
+        var pdf = new GeneradorFicha().Generar(Ficha() with { Estancias = muchas });
+
+        Assert.True(ContarPaginas(pdf) > 1);
+    }
+
+    /// <summary>
+    /// Una salida vacía es una estancia abierta o un campo sin llenar. En los
+    /// dos casos se dibuja una raya, nunca una fecha inventada.
+    /// </summary>
+    [Fact]
+    public void Una_estancia_sin_salida_no_rompe_el_dibujo()
+    {
+        var pdf = new GeneradorFicha().Generar(Ficha() with
+        {
+            Estancias = new[] { Estancia(1, null, null, hospedado: null) }
+        });
+
+        Assert.True(EsPdf(pdf));
+    }
+
+    /// <summary>
+    /// Lee el texto que de verdad quedó dibujado, descomprimiendo el flujo de
+    /// contenido de cada página. Comprobar solo que "es un PDF y pesa algo" deja
+    /// pasar cosas que no se dibujaron nunca — que es justo lo que pasó con el
+    /// pie de página.
+    /// </summary>
+    private static string TextoDeLasPaginas(byte[] pdf)
+    {
+        using var flujo = new MemoryStream(pdf);
+        using var documento = PdfSharp.Pdf.IO.PdfReader.Open(
+            flujo, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Modify);
+
+        var texto = new System.Text.StringBuilder();
+
+        for (var i = 0; i < documento.PageCount; i++)
+        {
+            var contenido = documento.Pages[i].Contents.CreateSingleContent();
+            texto.Append(System.Text.Encoding.UTF8.GetString(contenido.Stream.UnfilteredValue));
+        }
+
+        return texto.ToString();
+    }
+
+    /// <summary>
+    /// El pie tiene que salir en TODAS las páginas: dice cuándo se generó la
+    /// ficha y que lleva datos personales. Una segunda hoja suelta sin esa
+    /// advertencia es exactamente lo que no se quiere que circule.
+    ///
+    /// Esta prueba existe porque el pie estuvo ausente de todas las fichas:
+    /// se recorrían las páginas con OfType&lt;PdfPage&gt;(), que en PdfSharp
+    /// devuelve cero elementos sin fallar.
+    /// </summary>
+    [Fact]
+    public void El_pie_sale_en_todas_las_paginas()
+    {
+        var muchas = Enumerable.Range(1, 60)
+            .Select(i => Estancia(i, new DateTime(2025, 1, 1).AddDays(i), new DateTime(2025, 1, 2).AddDays(i)))
+            .ToArray();
+
+        var pdf = new GeneradorFicha().Generar(Ficha() with { Estancias = muchas });
+
+        Assert.True(ContarPaginas(pdf) > 1, "hacen falta varias páginas para que la prueba valga");
+
+        var apariciones = System.Text.RegularExpressions.Regex
+            .Matches(TextoDeLasPaginas(pdf), "Generada el")
+            .Count;
+
+        Assert.Equal(ContarPaginas(pdf), apariciones);
+    }
+
+    /// <summary>
+    /// Y que el contenido de verdad esté dibujado, no solo que el archivo pese.
+    /// </summary>
+    [Fact]
+    public void Los_datos_de_la_persona_quedan_dibujados()
+    {
+        var texto = TextoDeLasPaginas(new GeneradorFicha().Generar(Ficha()));
+
+        Assert.Contains("JUAN PEREZ LOPEZ", texto);
+        Assert.Contains("PELJ740115HDFRPN09", texto);
+    }
+
     private static int ContarPaginas(byte[] pdf)
     {
         using var flujo = new MemoryStream(pdf);
