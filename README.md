@@ -507,6 +507,35 @@ está en `sql/verificar_migracion.sql`.
 7. Corre `sql/verificar_migracion.sql` antes y después para confirmar el
    espacio liberado y que ya no queden imágenes en la tabla.
 
+### Reparar imágenes migradas con una versión anterior
+
+Las imágenes que guardaba el sistema anterior —asignadas a la columna desde un
+control de Delphi vía ADO— traen una cabecera delante de los datos. Las
+versiones de esta herramienta anteriores a agosto de 2026 copiaban el blob
+entero al archivo, cabecera incluida, dejando `.jpg` que ningún visor abre.
+
+**No se perdió nada**: esos archivos llevan el blob completo, así que se
+arreglan reescribiéndolos desde donde empieza la imagen de verdad. Funciona
+aunque `IDFoto1` e `IDFoto2` ya se hayan vaciado.
+
+```
+SchId.ImageMigration --reparar "C:\SchId\ImagenesINE"
+SchId.ImageMigration --reparar "C:\SchId\ImagenesINE" --ejecutar
+```
+
+No necesita cadena de conexión ni toca la base. Como todo lo demás, sin
+`--ejecutar` solo dice qué haría. Es idempotente: un archivo ya reparado empieza
+por su firma y se deja como está, así que se puede correr las veces que haga
+falta.
+
+Al final lista los archivos que **no son JPEG** aunque se llamen `.jpg`. PNG y
+BMP se ven igual en la ficha; GIF y TIFF no se pueden incrustar en un PDF y
+habría que convertirlos.
+
+El servidor también quita la cabecera al leer, así que las fichas salen bien
+aunque no repares nada. Repararlos deja los archivos correctos para cualquier
+otra cosa que los lea.
+
 ## Cómo instalarlo como servicio de Windows
 
 ```

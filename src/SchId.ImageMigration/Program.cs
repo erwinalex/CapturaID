@@ -25,11 +25,28 @@ using System.Data;
 using Microsoft.Data.SqlClient;
 using SchId.Shared;
 
+// Modo reparación: no toca la base, solo los archivos ya extraídos. Va antes
+// que nada porque ni siquiera necesita cadena de conexión.
+if (args.Contains("--reparar"))
+{
+    var carpeta = args.FirstOrDefault(a => !a.StartsWith("--"));
+    if (carpeta is null)
+    {
+        Console.WriteLine("Uso: SchId.ImageMigration --reparar \"<carpeta>\" [--ejecutar]");
+        return 1;
+    }
+
+    return await RepararCarpetaAsync(carpeta, args.Contains("--ejecutar"));
+}
+
 if (args.Length < 2)
 {
     Console.WriteLine("Uso: SchId.ImageMigration \"<connectionString>\" \"<carpetaDestino>\" [--ejecutar]");
     Console.WriteLine();
     Console.WriteLine("Sin --ejecutar solo simula: no escribe archivos ni modifica la base.");
+    Console.WriteLine();
+    Console.WriteLine("Para arreglar imágenes ya extraídas que quedaron con la cabecera del BLOB:");
+    Console.WriteLine("  SchId.ImageMigration --reparar \"<carpeta>\" [--ejecutar]");
     return 1;
 }
 
@@ -244,4 +261,114 @@ static async Task<long?> ExtraerImagenAsync(
     }
 
     return new FileInfo(path).Length;
+}
+
+
+/// <summary>
+/// Repara las imágenes que se extrajeron antes de que la herramienta supiera
+/// quitar la cabecera del BLOB.
+///
+/// No se perdió nada: esos archivos llevan el blob completo, cabecera incluida,
+/// así que basta con reescribirlos desde donde empieza la imagen de verdad. Por
+/// eso esto funciona aunque las columnas IDFoto1/IDFoto2 ya se hayan vaciado.
+///
+/// Es idempotente: un archivo ya reparado empieza por su firma y se deja como
+/// está, así que se puede correr las veces que haga falta.
+/// </summary>
+static async Task<int> RepararCarpetaAsync(string carpeta, bool ejecutar)
+{
+    if (!Directory.Exists(carpeta))
+    {
+        Console.WriteLine($"No existe la carpeta: {carpeta}");
+        return 1;
+    }
+
+    Console.WriteLine($"Carpeta: {carpeta}");
+    Console.WriteLine(ejecutar
+        ? "Modo: EJECUCIÓN REAL - se reescribirán los archivos que lo necesiten."
+        : "Modo: SIMULACIÓN. Usa --ejecutar para reescribirlos de verdad.");
+    Console.WriteLine();
+
+    int correctos = 0, reparados = 0, sinReconocer = 0, vacios = 0;
+    var noJpeg = new List<string>();
+
+    foreach (var ruta in Directory.EnumerateFiles(carpeta, "*.jpg").OrderBy(r => r))
+    {
+        var nombre = Path.GetFileName(ruta);
+        var contenido = await File.ReadAllBytesAsync(ruta);
+
+        if (contenido.Length == 0)
+        {
+            Console.WriteLine($"  {nombre}: vacío.");
+            vacios++;
+            continue;
+        }
+
+        var detectada = FormatoImagen.Detectar(contenido);
+
+        if (!detectada.Encontrada)
+        {
+            var primeros = string.Join(" ", contenido.Take(8).Select(b => b.ToString("X2")));
+            Console.WriteLine($"  {nombre}: no se reconoce el formato ({contenido.Length} bytes, empieza por {primeros}).");
+            sinReconocer++;
+            continue;
+        }
+
+        if (detectada.Tipo != TipoImagen.Jpeg)
+        {
+            noJpeg.Add($"{nombre} ({FormatoImagen.Nombre(detectada.Tipo)})");
+        }
+
+        if (!detectada.ConCabecera)
+        {
+            correctos++;
+            continue;
+        }
+
+        Console.WriteLine(
+            $"  {nombre}: {FormatoImagen.Nombre(detectada.Tipo)} con {detectada.Desplazamiento} bytes de cabecera.");
+
+        if (ejecutar)
+        {
+            // Se escribe a un temporal en la misma carpeta y se reemplaza de
+            // golpe: si se corta la luz a mitad, el archivo original sigue
+            // entero en lugar de quedar truncado.
+            var temporal = ruta + ".reparando";
+            await File.WriteAllBytesAsync(temporal, contenido[detectada.Desplazamiento..]);
+            File.Move(temporal, ruta, overwrite: true);
+        }
+
+        reparados++;
+    }
+
+    Console.WriteLine();
+    Console.WriteLine($"Ya estaban bien:   {correctos}");
+    Console.WriteLine(ejecutar ? $"Reparados:         {reparados}" : $"Se repararían:     {reparados}");
+    Console.WriteLine($"Sin reconocer:     {sinReconocer}");
+    Console.WriteLine($"Vacíos:            {vacios}");
+
+    if (noJpeg.Count > 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"Estos no son JPEG aunque se llamen .jpg ({noJpeg.Count}):");
+        foreach (var archivo in noJpeg.Take(20))
+        {
+            Console.WriteLine($"  {archivo}");
+        }
+
+        if (noJpeg.Count > 20)
+        {
+            Console.WriteLine($"  ... y {noJpeg.Count - 20} más.");
+        }
+
+        Console.WriteLine("Se ven igual en la ficha mientras sean PNG o BMP; GIF y TIFF no se pueden incrustar.");
+    }
+
+    if (!ejecutar && reparados > 0)
+    {
+        Console.WriteLine();
+        Console.WriteLine("Vuelve a correrlo con --ejecutar para reescribirlos.");
+    }
+
+    return 0;
 }
