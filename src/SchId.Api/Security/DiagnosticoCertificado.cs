@@ -30,7 +30,7 @@ public static class DiagnosticoCertificado
         var ruta = seccion["Path"];
         if (!string.IsNullOrWhiteSpace(ruta))
         {
-            logger.LogInformation("HTTPS: certificado desde archivo {Ruta}.", ruta);
+            RevisarArchivo(ruta, seccion["Password"], logger);
             return;
         }
 
@@ -91,6 +91,92 @@ public static class DiagnosticoCertificado
         {
             logger.LogWarning(ex, "HTTPS: no se pudo revisar el almacén de certificados.");
         }
+    }
+
+    /// <summary>
+    /// Abre el .pfx igual que lo hará Kestrel, y explica el fallo si lo hay.
+    ///
+    /// Antes esto solo anunciaba la ruta y volvía. El resultado era que un .pfx
+    /// que no se puede abrir no decía una palabra aquí y reventaba después en
+    /// KestrelServerImpl.BindAsync con cuarenta líneas de stack y sin ninguna
+    /// pista de qué hacer. Abrirlo aquí convierte eso en una línea.
+    /// </summary>
+    internal static void RevisarArchivo(string ruta, string? contrasena, ILogger logger)
+    {
+        var completa = Path.IsPathRooted(ruta) ? ruta : Path.Combine(AppContext.BaseDirectory, ruta);
+
+        logger.LogInformation("HTTPS: certificado desde archivo {Ruta}.", completa);
+
+        if (!File.Exists(completa))
+        {
+            logger.LogError("HTTPS: el archivo no existe. Kestrel no va a poder arrancar.");
+            return;
+        }
+
+        try
+        {
+            using var certificado = new X509Certificate2(completa, contrasena);
+
+            logger.LogInformation(
+                "HTTPS: usando el certificado {Subject}, huella {Huella}, vence {Vence:yyyy-MM-dd}.",
+                certificado.Subject, certificado.Thumbprint, certificado.NotAfter);
+
+            var san = certificado.Extensions
+                .FirstOrDefault(e => e.Oid?.Value == "2.5.29.17")
+                ?.Format(false);
+
+            logger.LogInformation("HTTPS: direcciones del certificado (SAN): {San}", san ?? "(ninguna)");
+
+            ProbarLlavePrivada(certificado, logger);
+            RevisarCadena(certificado, logger);
+
+            if (certificado.NotAfter < DateTime.Now)
+            {
+                logger.LogError(
+                    "HTTPS: el certificado venció el {Vence:yyyy-MM-dd}. Vuelve a correr New-SchIdCertificado.ps1.",
+                    certificado.NotAfter);
+            }
+        }
+        catch (CryptographicException ex)
+        {
+            logger.LogError("HTTPS: no se pudo abrir el .pfx. {Motivo}", ExplicarFalloDePfx(ex));
+        }
+    }
+
+    /// <summary>
+    /// Traduce el fallo al abrir un .pfx.
+    ///
+    /// Abrir un .pfx no es solo leer el archivo: Windows tiene que escribir la
+    /// llave privada en un contenedor de claves, y ese paso puede fallar aunque
+    /// el archivo se lea perfectamente. Por eso "Acceso denegado" aquí no
+    /// significa que falten permisos sobre el .pfx.
+    /// </summary>
+    internal static string ExplicarFalloDePfx(CryptographicException ex)
+    {
+        var texto = ex.Message.ToLowerInvariant();
+
+        if (texto.Contains("acceso denegado") || texto.Contains("access denied") ||
+            texto.Contains("access is denied"))
+        {
+            return "Acceso denegado al abrir el archivo.\n" +
+                "No son los permisos del .pfx: el archivo se leyó. Lo que falló es escribir la " +
+                "llave privada en el contenedor de claves de la cuenta que corre el proceso.\n" +
+                "Suele ser una de estas:\n" +
+                "  - El proceso corre como servicio o con una cuenta sin perfil de usuario cargado.\n" +
+                "  - El perfil existe pero su carpeta de claves no es escribible.\n" +
+                "Lo que funciona siempre es no cargar el .pfx desde disco: impórtalo al almacén de " +
+                "la máquina y configura Kestrel con Subject/Store/Location en vez de Path/Password.\n" +
+                "  New-SchIdCertificado.ps1 -Instalar -ArchivoPfx ... -ArchivoCa ... -CuentaServicio \"<cuenta>\"\n" +
+                $"Detalle: {ex.Message}";
+        }
+
+        if (texto.Contains("contraseña") || texto.Contains("password") || texto.Contains("red no es correcta"))
+        {
+            return "La contraseña no coincide con Kestrel:Endpoints:Https:Certificate:Password.\n" +
+                $"Detalle: {ex.Message}";
+        }
+
+        return $"{ex.GetType().Name}: {ex.Message}";
     }
 
     /// <summary>
